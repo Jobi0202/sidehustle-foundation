@@ -1,0 +1,100 @@
+name: Notify Jo (Visual QA Ready)
+on:
+  workflow_run:
+    workflows: [Codex Adversarial Review (Gate 3)]
+    types: [completed]
+
+jobs:
+  notify:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      deployments: read
+      contents: read
+    steps:
+      - name: Gather PR and Vercel preview URL
+        id: info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = context.payload.workflow_run.pull_requests || [];
+            if (!prs.length) { core.setFailed('No PR'); return; }
+            const pr_number = prs[0].number;
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr_number
+            });
+            const head_sha = pr.data.head.sha;
+            const deployments = await github.rest.repos.listDeployments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: head_sha
+            });
+            let preview_url = '';
+            for (const dep of deployments.data) {
+              const statuses = await github.rest.repos.listDeploymentStatuses({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                deployment_id: dep.id
+              });
+              const success = statuses.data.find(s => s.state === 'success');
+              if (success && success.environment_url) {
+                preview_url = success.environment_url;
+                break;
+              }
+            }
+            core.setOutput('pr_number', pr_number);
+            core.setOutput('pr_title', pr.data.title);
+            core.setOutput('pr_url', pr.data.html_url);
+            core.setOutput('preview_url', preview_url || 'pending');
+            core.setOutput('head_sha', head_sha.slice(0, 7));
+
+      - name: Update Notion task
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        run: |
+          if [ -z "${NOTION_API_KEY}" ] || [ -z "${NOTION_DATABASE_ID}" ]; then
+            echo "Notion secrets not configured, skipping."
+            exit 0
+          fi
+          curl -sS -X POST https://api.notion.com/v1/pages \
+            -H "Authorization: Bearer ${NOTION_API_KEY}" \
+            -H "Notion-Version: 2022-06-28" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg db "$NOTION_DATABASE_ID" \
+              --arg title "Ready for Visual QA: ${{ steps.info.outputs.pr_title }}" \
+              --arg pr "${{ steps.info.outputs.pr_url }}" \
+              --arg preview "${{ steps.info.outputs.preview_url }}" \
+              --arg sha "${{ steps.info.outputs.head_sha }}" \
+              '{
+                parent: { database_id: $db },
+                properties: {
+                  Name: { title: [{ text: { content: $title } }] },
+                  Status: { status: { name: "Ready for Visual QA" } },
+                  "PR URL": { url: $pr },
+                  "Preview URL": { url: $preview },
+                  SHA: { rich_text: [{ text: { content: $sha } }] }
+                }
+              }')"
+
+      - name: Send Pushover push notification
+        env:
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+        run: |
+          if [ -z "${PUSHOVER_APP_TOKEN}" ] || [ -z "${PUSHOVER_USER_KEY}" ]; then
+            echo "Pushover secrets not configured, skipping."
+            exit 0
+          fi
+          curl -sS https://api.pushover.net/1/messages.json \
+            --form-string "token=${PUSHOVER_APP_TOKEN}" \
+            --form-string "user=${PUSHOVER_USER_KEY}" \
+            --form-string "title=Visual QA: PR #${{ steps.info.outputs.pr_number }}" \
+            --form-string "message=${{ steps.info.outputs.pr_title }} — all 3 gates green, ready for Visual QA." \
+            --form-string "url=${{ steps.info.outputs.preview_url }}" \
+            --form-string "url_title=Open Vercel Preview" \
+            --form-string "priority=0"

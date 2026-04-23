@@ -1,0 +1,67 @@
+name: Codex Adversarial Review (Gate 3)
+on:
+  workflow_run:
+    workflows: [Claude Review (Gate 2)]
+    types: [completed]
+
+jobs:
+  adversarial:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Claude Code CLI + Codex plugin
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm install -g @anthropic-ai/claude-code@latest
+          claude /plugin marketplace add openai/codex-plugin-cc || true
+          claude /plugin install codex@openai || true
+
+      - name: Identify PR number
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = context.payload.workflow_run.pull_requests || [];
+            if (!prs.length) { core.setFailed('No PR associated'); return; }
+            return prs[0].number;
+          result-encoding: string
+
+      - name: Run Codex adversarial review
+        id: adv
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          claude -p "/codex:adversarial-review on PR #${{ steps.pr.outputs.result }}" --output-format=stream-json > /tmp/adversarial.log
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          tail -n 200 /tmp/adversarial.log || true
+          exit 0
+
+      - name: Enforce gate verdict
+        run: |
+          if [ "${{ steps.adv.outputs.exit_code }}" != "0" ]; then
+            echo "Codex adversarial returned non-zero exit. Gate 3 FAILED."
+            exit 1
+          fi
+          echo "Gate 3 PASSED."
