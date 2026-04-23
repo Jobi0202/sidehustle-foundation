@@ -1,0 +1,74 @@
+name: Bug
+description: Something broken, regressed, or misbehaving
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A bug Issue must produce at least one regression test in the fixing PR.
+        The test must fail on main and pass on the fix branch.
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "S0 production down / data loss"
+        - "S1 core flow broken"
+        - "S2 secondary flow broken or workaround available"
+        - "S3 cosmetic / rare edge case"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - Branch / commit: ...
+        - Browser / OS: ...
+        - Relevant env vars: ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: regression-hint
+    attributes:
+      label: Suspected Root Cause (optional)
+      description: Pointer to file or change that may have introduced the bug. Builder verifies.
+    validations:
+      required: false
+
+  - type: textarea
+    id: visual-qa-hint
+    attributes:
+      label: Visual QA Hint
+      description: Click-path on the Vercel Preview that reproduces the bug on main and should now succeed.
+    validations:
+      required: true

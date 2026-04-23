@@ -1,0 +1,61 @@
+name: Spike
+description: Time-boxed research or investigation producing a decision, not code
+title: "[Spike] "
+labels: ["spike", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A spike Issue produces an ADR (Architecture Decision Record) or research doc no production code.
+        Exempt from the Playwright test requirement. Still requires a PR and review gates against the doc deliverable.
+
+  - type: textarea
+    id: research-question
+    attributes:
+      label: Research Question
+      description: One crisp question. If you need two, split into two spikes.
+      placeholder: "Should we use X or Y for Z?"
+    validations:
+      required: true
+
+  - type: input
+    id: timebox
+    attributes:
+      label: Timebox
+      placeholder: "e.g. 4 hours, or 1 day"
+    validations:
+      required: true
+
+  - type: textarea
+    id: decision-output
+    attributes:
+      label: Expected Decision Output
+      description: What shape does the answer take?
+      placeholder: |
+        - ADR at `docs/adr/NNNN-<slug>.md`
+        - Pros / cons table
+        - Recommendation with rationale
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: How do we know the spike is done?
+      placeholder: |
+        - Decision made and documented
+        - Linked follow-up Issues created for implementation
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints / Context
+      placeholder: |
+        - Budget ceiling
+        - Existing stack constraints
+        - Known non-starters
+    validations:
+      required: false
