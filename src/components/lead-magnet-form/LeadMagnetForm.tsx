@@ -29,7 +29,9 @@ export function LeadMagnetForm({ className, onSubmit }: LeadMagnetFormProps) {
       onSubmit(email)
       return
     }
-    window.alert(`Thanks! We'll send the playbook to ${email}.`)
+    window.alert(
+      `Vielen Dank! Wir schicken den 5-Schritte-Guide an ${email}.`,
+    )
   }
 
   return (
@@ -40,7 +42,7 @@ export function LeadMagnetForm({ className, onSubmit }: LeadMagnetFormProps) {
     >
       <div className="flex-1 text-left">
         <Label htmlFor="lead-magnet-email" className="sr-only">
-          Email address
+          E-Mail-Adresse
         </Label>
         <Input
           id="lead-magnet-email"
@@ -48,13 +50,13 @@ export function LeadMagnetForm({ className, onSubmit }: LeadMagnetFormProps) {
           type="email"
           required
           autoComplete="email"
-          placeholder="you@example.com"
+          placeholder="name@beispiel.de"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
       </div>
       <Button type="submit" size="lg" className="sm:w-auto">
-        Send me the playbook
+        Kostenlosen 5-Schritte-Guide anfordern
       </Button>
     </form>
   )

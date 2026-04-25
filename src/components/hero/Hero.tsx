@@ -19,19 +19,21 @@ export function Hero({ className }: HeroProps) {
         className,
       )}
     >
-      <div className="mx-auto max-w-2xl space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6">
         <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-          Side-hustle foundation
+          Für Eltern in Hessen
         </p>
         <h1
           id="hero-heading"
           className="text-balance text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl"
         >
-          Ship your MVP in days, not months.
+          Kein Elterngeld? Nutzt euren Bildungsurlaub für bis zu 10 Tage extra
+          Elternzeit in Hessen.
         </h1>
         <p className="text-balance text-lg text-muted-foreground sm:text-xl">
-          A pragmatic launch kit for solo founders. Drop your email and we&apos;ll
-          send you the playbook the moment it&apos;s live.
+          Hessen erlaubt jedem Beschäftigten bis zu 10 bezahlte Bildungstage pro
+          Jahr. Unser kostenloser 5-Schritte-Guide zeigt euch, wie ihr sie
+          rechtssicher beantragt und clever mit der Elternzeit kombiniert.
         </p>
         <div className="mx-auto max-w-md pt-4">
           <LeadMagnetForm />

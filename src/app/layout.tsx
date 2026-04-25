@@ -4,8 +4,9 @@ import type { ReactNode } from 'react'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Side-hustle foundation',
-  description: 'Ship your MVP in days, not months.',
+  title: 'Bildungsurlaub als Elterngeld-Ersatz in Hessen',
+  description:
+    'Kostenloser 5-Schritte-Guide: bis zu 10 Tage bezahlten Bildungsurlaub clever mit der Elternzeit kombinieren.',
 }
 
 export default function RootLayout({
@@ -14,7 +15,7 @@ export default function RootLayout({
   children: ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="de">
       <body className="min-h-screen bg-background text-foreground antialiased">
         {children}
       </body>
