@@ -132,7 +132,7 @@ jobs:
         id: adv
         run: |
           set +e
-          claude -p "/codex:adversarial-review on PR #${{ github.event.pull_request.number }} (apply @./.claude/rules/review.md, post verdict as PR comment, exit 1 on FAIL)" --output-format=stream-json > /tmp/adversarial.log
+          claude -p "/codex:adversarial-review on PR #${{ github.event.pull_request.number }} (apply @./.claude/rules/review.md, post verdict as PR comment, exit 1 on FAIL)" 2>&1 | tee /tmp/adversarial.log
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           tail -n 200 /tmp/adversarial.log || true
           exit 0
