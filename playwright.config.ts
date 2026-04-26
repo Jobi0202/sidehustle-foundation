@@ -21,12 +21,12 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
-  // webServer: add once Next.js is scaffolded into the repo.
-  // Example:
-  // webServer: {
-  //   command: 'pnpm dev',
-  //   url: baseURL,
-  //   reuseExistingServer: !process.env.CI,
-  //   timeout: 120_000,
-  // },
+  webServer: {
+    command: `pnpm dev --port ${PORT}`,
+    url: baseURL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 180_000,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  },
 })

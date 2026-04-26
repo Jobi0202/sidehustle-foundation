@@ -1,0 +1,25 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "complexity": ["error", 10],
+    "import/order": [
+      "error",
+      {
+        "groups": ["builtin", "external", "internal", "parent", "sibling", "index"],
+        "pathGroups": [{ "pattern": "@/**", "group": "internal", "position": "before" }],
+        "newlines-between": "always",
+        "alphabetize": { "order": "asc", "caseInsensitive": true }
+      }
+    ]
+  },
+  "ignorePatterns": [
+    "node_modules",
+    ".next",
+    "dist",
+    "playwright-report",
+    "test-results",
+    "e2e/**",
+    "*.config.*",
+    "next-env.d.ts"
+  ]
+}
