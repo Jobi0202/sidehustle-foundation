@@ -1,11 +1,13 @@
-name: Notify Jo (Post-Merge Visual QA)
+name: Notify Jo (Preview + Post-Merge Visual QA)
 on:
   pull_request:
     types: [closed]
+  issue_comment:
+    types: [created]
 
 jobs:
   notify:
-    if: github.event.pull_request.merged == true
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -89,4 +91,91 @@ jobs:
             --form-string "message=${{ steps.info.outputs.pr_title }} - merged to main, Visual QA on production." \
             --form-string "url=${{ steps.info.outputs.prod_url }}" \
             --form-string "url_title=Open Production" \
+            --form-string "priority=0"
+
+  preview-notify:
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null &&
+      github.event.comment.user.login == 'vercel[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Parse Vercel preview URL
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body || '';
+            const match = body.match(/https:\/\/[a-z0-9][a-z0-9-]*\.vercel\.app(?![a-z0-9-])/i);
+            if (!match) {
+              core.info('No preview URL found in vercel-bot comment.');
+              core.setOutput('preview_url', '');
+              return;
+            }
+            const previewUrl = match[0];
+            const issueNumber = context.payload.issue.number;
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: issueNumber
+            });
+            core.setOutput('preview_url', previewUrl);
+            core.setOutput('pr_number', pr.data.number);
+            core.setOutput('pr_title', pr.data.title);
+            core.setOutput('pr_url', pr.data.html_url);
+            core.setOutput('head_sha', pr.data.head.sha.slice(0, 7));
+
+      - name: Insert into Notion Visual QA Queue
+        if: steps.parse.outputs.preview_url != ''
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_VISUAL_QA_DB_ID: ${{ secrets.NOTION_VISUAL_QA_DB_ID }}
+        run: |
+          if [ -z "${NOTION_API_KEY}" ] || [ -z "${NOTION_VISUAL_QA_DB_ID}" ]; then
+            echo "Visual QA DB secret not configured, skipping."
+            exit 0
+          fi
+          curl -sS -X POST https://api.notion.com/v1/pages \
+            -H "Authorization: Bearer ${NOTION_API_KEY}" \
+            -H "Notion-Version: 2022-06-28" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg db "$NOTION_VISUAL_QA_DB_ID" \
+              --arg title "Preview: ${{ steps.parse.outputs.pr_title }}" \
+              --arg pr "${{ steps.parse.outputs.pr_url }}" \
+              --arg preview "${{ steps.parse.outputs.preview_url }}" \
+              --arg sha "${{ steps.parse.outputs.head_sha }}" \
+              --arg repo "${{ github.repository }}" \
+              '{
+                parent: { database_id: $db },
+                properties: {
+                  Name: { title: [{ text: { content: $title } }] },
+                  Status: { select: { name: "Open" } },
+                  "PR URL": { url: $pr },
+                  "Preview URL": { url: $preview },
+                  SHA: { rich_text: [{ text: { content: $sha } }] },
+                  Repo: { rich_text: [{ text: { content: $repo } }] }
+                }
+              }')"
+
+      - name: Send Pushover push for preview
+        if: steps.parse.outputs.preview_url != ''
+        env:
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+        run: |
+          if [ -z "${PUSHOVER_APP_TOKEN}" ] || [ -z "${PUSHOVER_USER_KEY}" ]; then
+            echo "Pushover secrets not configured, skipping."
+            exit 0
+          fi
+          curl -sS https://api.pushover.net/1/messages.json \
+            --form-string "token=${PUSHOVER_APP_TOKEN}" \
+            --form-string "user=${PUSHOVER_USER_KEY}" \
+            --form-string "title=Preview ready: PR #${{ steps.parse.outputs.pr_number }}" \
+            --form-string "message=${{ steps.parse.outputs.pr_title }} | SHA ${{ steps.parse.outputs.head_sha }} | bereit zur Visual QA" \
+            --form-string "url=${{ steps.parse.outputs.preview_url }}" \
+            --form-string "url_title=Open Preview" \
             --form-string "priority=0"
