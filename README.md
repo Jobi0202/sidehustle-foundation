@@ -1,63 +1,52 @@
 # sidehustle-foundation
 
-Autonomous Claude Code operator template for side-hustle MVP development.
+Template repository for autonomous side-hustle MVP development with Claude Code.
 
-This repository is the canonical starting point for any new side-hustle project. Use it as a GitHub template — it ships a pre-configured Claude Code harness with strict architectural rules, an AI-AI double-gate review pipeline, and parallel-agent worktree tooling.
+## Quick Start
 
-## What This Is
-
-A template repository for building MVPs under the following operating model:
-- Claude Code is the autonomous operator (v2.1.49+).
-- GitHub Issues are the single source of truth for work.
-- Pull Requests are the delivery unit.
-- All code review is AI-AI (Claude sub-agent + OpenAI Codex plugin). The Product Owner does Visual QA only.
-- Merge gate = CI (Playwright + Vitest + lint + typecheck) + Claude review + Codex adversarial review, all green.
-
-## Structure
+For a new side-hustle, paste into a Master Agent (Cowork) session:
 
 ```
-CLAUDE.md                     operator entrypoint, max 200 lines
-.claude/
-  rules/
-    architecture.md           layer boundaries, stack constraints
-    boy-scout.md              in-scope cleanup on every edit
-    testing.md                no PR without tests
-    review.md                 6-criteria verdict canon
-    anti-spaghetti.md         size caps, naming rules
-  agents/
-    reviewer.md               fresh-context adversarial sub-agent
-  commands/
-    review-pr.md              custom /review-pr command
-.github/
-  ISSUE_TEMPLATE/
-    feature.yml, bug.yml, spike.yml
-scripts/
-  new-worktree.{ps1,sh}       worktree + pnpm install
-  start-dev.{ps1,sh}          dev server with branch-hashed port
-  cleanup-worktrees.{ps1,sh}  remove merged worktrees
+Master Agent: bootstrap side-hustle <slug>
+Specs liegen in: Product Manager/Ideas/<slug>/
 ```
 
-## Bootstrapping a New Project
+Master Agent returns the Builder-Prompt; paste it into Claude Code Desktop. Builder runs `gh repo create --template`, imports specs, sets up the pipeline, and starts Issue #1. You QA on production, that's it.
 
-1. Create from template: GitHub "Use this template" new repo.
-2. Clone locally.
-3. Scaffold Next.js into the repo, run `pnpm install` at the root.
-4. Configure branch protection on `main`: require the three gates (CI, Claude review, Codex adversarial).
-5. Install Codex plugin: `/plugin marketplace add openai/codex-plugin-cc` then `/plugin install codex@openai`.
-6. Open your first Issue from a template and let Claude Code take over: `claude -w issue-1`.
+## Requirements (one-time per machine)
 
-## Runtime Target
+- `gh` CLI authenticated (`gh auth login`)
+- `~/.sidehustle-secrets.env` filled (see `.env.template`)
+- Claude Code GitHub App installed account-wide: https://github.com/apps/claude
+- Vercel for GitHub installed account-wide
 
-Optimized for Claude Code CLI v2.1.49+ on Windows (PowerShell) and WSL/Linux. Scripts provided in both `.ps1` and `.sh` variants.
+## Pipeline (what this template ships)
 
-## Status
+- `CLAUDE.md` operator manual
+- `.claude/rules/*` — 5 rule files (architecture, boy-scout, testing, review, anti-spaghetti)
+- `.claude/agents/reviewer.md` + `.claude/commands/review-pr.md`
+- `.github/workflows/pr-gates.yml` — single workflow, 7 jobs, alls-green pattern
+- `.github/workflows/enable-auto-merge.yml` — squash-auto-merge on PR open
+- `.github/workflows/notify-jo.yml` — Notion + Pushover post-merge
+- `.github/ISSUE_TEMPLATE/*` — feature, bug, spike
+- `scripts/*` — worktree, port-from-branch, cleanup (PowerShell + Bash)
+- `.husky/pre-push` — main-branch protection (Free-Plan local Türsteher while server-side Branch Protection is paused)
+- `.env.template` — schema for the central secrets file
 
-- M1 — rules, templates, sub-agent, command: delivered
-- M2 — worktree + port + cleanup scripts: delivered
-- M3 — CI pipeline (Playwright, lint, typecheck), auto-return-to-builder: pending
-- M4 — Claude review + Codex adversarial + Notion/Pushover notifications: pending
+Full architecture: [`docs/PIPELINE.md`](docs/PIPELINE.md). Handoff protocol: [`docs/HANDOFF-PROTOCOL.md`](docs/HANDOFF-PROTOCOL.md).
 
-## Trade-Off Decisions (locked 2026-04-23)
+## Trade-offs (locked 2026-04-23, reviewed 2026-05-02)
 
-- T1 Review depth: Double-Gate (Claude + Codex both required).
-- T2 Notification channel: Notion API update + Pushover webhook alert, fires only after all three gates pass.
+- **Review depth:** Double-Gate (Claude review + Codex adversarial). Both must pass.
+- **Notification:** Notion task + Pushover push, post-merge.
+- **Branch protection:** Husky local hook (server-side Branch Protection paused on Free Plan until incorporation; see `feedback_branch_protection_private_free.md` in Master Agent memory for re-eval triggers).
+
+## Use this template
+
+GitHub UI: "Use this template" button. Or:
+
+```
+gh repo create <org>/<slug> --private --template Jobi0202/sidehustle-foundation --clone
+```
+
+The full bootstrap sequence (specs import, secrets push, auto-merge enable, build start) is in `templates/builder-bootstrap-prompt.md` — Master Agent fills it in for you.
