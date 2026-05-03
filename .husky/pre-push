@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+branch=$(git symbolic-ref --short HEAD)
+if [ "$branch" = "main" ]; then
+  echo "ERROR: Direct push to main is forbidden. Use a feature branch + PR."
+  echo "If you really need to bypass (emergency only), use: git push --no-verify"
+  echo "But: bypassing pre-push is a Hard-Stop violation per CLAUDE.md."
+  exit 1
+fi

@@ -47,7 +47,8 @@ Read these before any architectural decision. They are binding.
 
 ## Hard Stops (never without explicit Jo approval via Issue label `jo-approved`)
 - Delete files from `main` history
-- Push directly to `main` (always via PR)
+- Push directly to `main` — NEVER. Always feature branch + PR.
+- Bypass the local `.husky/pre-push` hook (e.g. `git push --no-verify`) — NEVER. The hook is the local Türsteher while Branch Protection is paused (Free-Plan, until incorporation).
 - Disable or bypass a required status check
 - Self-merge a PR (the workflow merges)
 - Commit secrets or tokens (use `process.env.*` reads via `lib/config.ts`)
