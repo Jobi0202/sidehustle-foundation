@@ -14,8 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -29,8 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -44,8 +40,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -59,8 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -88,7 +80,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: anthropics/claude-code-action@v1
+      - id: claude_review
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
@@ -96,9 +89,18 @@ jobs:
 
             Apply the 6-criteria canon strictly per @./.claude/rules/review.md.
             Read the linked Issue, the full diff, and full file contents of every changed file.
-            Emit the verdict in the exact format. Post it as a PR comment.
+            Emit the verdict in the exact format. Post it as a PR comment via `gh pr comment ${{ github.event.pull_request.number }} --body "..."` — this is mandatory, not optional.
             Exit with non-zero status if any criterion is FAIL or there are BLOCKING findings.
           claude_args: "--model claude-haiku-4-5-20251001 --max-turns 25"
+
+      - name: Post Gate 2 status to PR (if action did not)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          STATUS="${{ steps.claude_review.outcome }}"
+          gh pr comment "$PR" --body "## Gate 2 — Claude Review status: $STATUS (action-level). See action log + above verdict for details." || true
 
   codex-adversarial:
     name: Codex Adversarial Review (Gate 3)
@@ -117,8 +119,6 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -136,6 +136,21 @@ jobs:
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           tail -n 200 /tmp/adversarial.log || true
           exit 0
+      - name: Post Codex verdict to PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=${{ steps.pr.outputs.result }}
+          VERDICT_BODY="## Gate 3 — Codex Adversarial Review
+
+Exit code: ${{ steps.adv.outputs.exit_code }}
+
+\`\`\`
+$(tail -n 100 /tmp/adversarial.log 2>/dev/null || echo 'No log captured.')
+\`\`\`"
+          gh pr comment "$PR" --body "$VERDICT_BODY" || true
+
       - name: Enforce gate verdict
         run: |
           if [ "${{ steps.adv.outputs.exit_code }}" != "0" ]; then

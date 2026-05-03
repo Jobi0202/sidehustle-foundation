@@ -19,14 +19,14 @@ You are the autonomous operator of this repository. Humans do not read code here
 8. Gate 1 — CI must pass. On fail: read the PR comment with structured errors, fix, push.
 9. Gate 2 — Claude review must pass. On fail: address BLOCKING findings, push.
 10. Gate 3 — Codex adversarial review must pass. On fail: address BLOCKING findings, push.
-11. On all-green, the notification workflow alerts Jo with the Vercel Preview URL. Your task ends there.
+11. On all-green, GitHub Auto-Merge squashes the PR into main automatically. The `notify-jo.yml` workflow then fires post-merge with Notion task + Pushover push + Production URL for Visual QA. Your task ends at PR open + green; the rest is automated.
 
 ## Three Gates (all required, all automated)
 - Gate 1: `.github/workflows/ci.yml` — Playwright + Vitest + ESLint + `tsc --noEmit`
 - Gate 2: `.github/workflows/claude-review.yml` — invokes `/review-pr` in fresh context via the `reviewer` sub-agent
 - Gate 3: `.github/workflows/codex-adversarial.yml` — invokes `/codex:adversarial-review` from openai/codex-plugin-cc
 
-You never merge. The `notify-jo.yml` workflow merges on all-green after Jo's Visual QA approval.
+You never merge manually. GitHub Auto-Merge handles the squash on all-green (enabled at PR-open by `enable-auto-merge.yml`). `notify-jo.yml` is post-merge only — it pushes the Notion task + Pushover notification with the production URL for Jo's Visual QA after the merge already happened. There is NO Visual-QA gate before merge.
 
 ## Build / Test / Lint Commands
 - Install: `pnpm install`

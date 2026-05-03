@@ -1,14 +1,36 @@
 {
-  "extends": ["next/core-web-vitals"],
+  "root": true,
+  "extends": [
+    "next/core-web-vitals"
+  ],
   "rules": {
-    "complexity": ["error", 10],
+    "complexity": [
+      "error",
+      10
+    ],
     "import/order": [
       "error",
       {
-        "groups": ["builtin", "external", "internal", "parent", "sibling", "index"],
-        "pathGroups": [{ "pattern": "@/**", "group": "internal", "position": "before" }],
+        "groups": [
+          "builtin",
+          "external",
+          "internal",
+          "parent",
+          "sibling",
+          "index"
+        ],
+        "pathGroups": [
+          {
+            "pattern": "@/**",
+            "group": "internal",
+            "position": "before"
+          }
+        ],
         "newlines-between": "always",
-        "alphabetize": { "order": "asc", "caseInsensitive": true }
+        "alphabetize": {
+          "order": "asc",
+          "caseInsensitive": true
+        }
       }
     ]
   },
