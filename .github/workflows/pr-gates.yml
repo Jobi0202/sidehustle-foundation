@@ -142,14 +142,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR=${{ steps.pr.outputs.result }}
-          VERDICT_BODY="## Gate 3 — Codex Adversarial Review
-
-Exit code: ${{ steps.adv.outputs.exit_code }}
-
-\`\`\`
-$(tail -n 100 /tmp/adversarial.log 2>/dev/null || echo 'No log captured.')
-\`\`\`"
-          gh pr comment "$PR" --body "$VERDICT_BODY" || true
+          {
+            echo "## Gate 3 — Codex Adversarial Review"
+            echo ""
+            echo "Exit code: ${{ steps.adv.outputs.exit_code }}"
+            echo ""
+            echo '```'
+            tail -n 100 /tmp/adversarial.log 2>/dev/null || echo 'No log captured.'
+            echo '```'
+          } > /tmp/verdict.md
+          gh pr comment "$PR" --body-file /tmp/verdict.md || true
 
       - name: Enforce gate verdict
         run: |
