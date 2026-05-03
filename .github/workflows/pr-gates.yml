@@ -2,6 +2,7 @@ name: PR Gates
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: pr-gates-${{ github.event.pull_request.number }}
@@ -70,6 +71,7 @@ jobs:
   claude-review:
     name: Claude Review (Gate 2)
     needs: [lint, typecheck, unit, e2e]
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -126,6 +128,7 @@ jobs:
   codex-adversarial:
     name: Codex Adversarial Review (Gate 3)
     needs: [claude-review]
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -144,11 +147,21 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      - name: Install Claude Code CLI + Codex plugin
+      - name: Install Claude Code CLI + Codex plugin (hard fail on install error)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          set -e
           npm install -g @anthropic-ai/claude-code@latest
-          claude /plugin marketplace add openai/codex-plugin-cc || true
-          claude /plugin install codex@openai || true
+          claude /plugin marketplace add openai/codex-plugin-cc
+          claude /plugin install codex@openai
+          # Verify plugin is actually loaded — install can return 0 silently
+          if ! claude /plugin list 2>&1 | grep -qi 'codex'; then
+            echo "ERROR: codex plugin install reported success but is not in /plugin list"
+            claude /plugin list 2>&1 || true
+            exit 1
+          fi
+          echo "Codex plugin installed and verified.
       - name: Run Codex adversarial review
         id: adv
         run: |
@@ -187,12 +200,13 @@ jobs:
 
   gates-green:
     name: Gates Green
-    if: always()
+    if: always() && github.event.pull_request.draft == false
     needs: [lint, typecheck, unit, e2e, claude-review, codex-adversarial]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+      issues: write
     steps:
       - name: Aggregate result (alls-green)
         id: alls
@@ -206,5 +220,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR=${{ github.event.pull_request.number }}
-          echo "All gates green. Merging PR #$PR via squash..."
-          gh pr merge "$PR" --squash --delete-branch
+          echo "All gates green. Merging PR #$PR via squash (no local checkout, --repo flag)..."
+          gh pr merge "$PR" --repo ${{ github.repository }} --squash --delete-branch
