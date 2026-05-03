@@ -80,27 +80,48 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - id: claude_review
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: |
-            /review-pr ${{ github.event.pull_request.number }}
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@latest
 
-            Apply the 6-criteria canon strictly per @./.claude/rules/review.md.
-            Read the linked Issue, the full diff, and full file contents of every changed file.
-            Emit the verdict in the exact format. Post it as a PR comment via `gh pr comment ${{ github.event.pull_request.number }} --body "..."` — this is mandatory, not optional.
-            Exit with non-zero status if any criterion is FAIL or there are BLOCKING findings.
-          claude_args: "--model claude-haiku-4-5-20251001 --max-turns 25"
+      - name: Run /review-pr (Gate 2) — stdout to file
+        id: claude_review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          PR=${{ github.event.pull_request.number }}
+          claude -p "/review-pr $PR" --model claude-haiku-4-5-20251001 > /tmp/claude_review.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Post Gate 2 status to PR (if action did not)
+      - name: Post Claude Review verdict to PR
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR=${{ github.event.pull_request.number }}
-          STATUS="${{ steps.claude_review.outcome }}"
-          gh pr comment "$PR" --body "## Gate 2 — Claude Review status: $STATUS (action-level). See action log + above verdict for details." || true
+          {
+            echo "## Gate 2 — Claude Review"
+            echo ""
+            echo "Exit code: ${{ steps.claude_review.outputs.exit_code }}"
+            echo ""
+            echo '<details><summary>Full verdict (stdout)</summary>'
+            echo ''
+            echo '```'
+            cat /tmp/claude_review.txt 2>/dev/null || echo 'No output captured.'
+            echo '```'
+            echo '</details>'
+          } > /tmp/claude_review_comment.md
+          gh pr comment "$PR" -F /tmp/claude_review_comment.md || true
+
+      - name: Enforce Gate 2 verdict
+        run: |
+          if [ "${{ steps.claude_review.outputs.exit_code }}" != "0" ]; then
+            echo "Claude Review returned non-zero exit. Gate 2 FAILED."
+            exit 1
+          fi
+          echo "Gate 2 PASSED."
 
   codex-adversarial:
     name: Codex Adversarial Review (Gate 3)
@@ -147,11 +168,14 @@ jobs:
             echo ""
             echo "Exit code: ${{ steps.adv.outputs.exit_code }}"
             echo ""
+            echo '<details><summary>Full verdict (stdout)</summary>'
+            echo ''
             echo '```'
-            tail -n 100 /tmp/adversarial.log 2>/dev/null || echo 'No log captured.'
+            cat /tmp/adversarial.log 2>/dev/null || echo 'No log captured.'
             echo '```'
-          } > /tmp/verdict.md
-          gh pr comment "$PR" --body-file /tmp/verdict.md || true
+            echo '</details>'
+          } > /tmp/codex_verdict.md
+          gh pr comment "$PR" -F /tmp/codex_verdict.md || true
 
       - name: Enforce gate verdict
         run: |
