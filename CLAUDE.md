@@ -21,12 +21,14 @@ You are the autonomous operator of this repository. Humans do not read code here
 10. Gate 3 — Codex adversarial review must pass. On fail: address BLOCKING findings, push.
 11. On all-green, GitHub Auto-Merge squashes the PR into main automatically. The `notify-jo.yml` workflow then fires post-merge with Notion task + Pushover push + Production URL for Visual QA. Your task ends at PR open + green; the rest is automated.
 
-## Three Gates (all required, all automated)
-- Gate 1: `.github/workflows/ci.yml` — Playwright + Vitest + ESLint + `tsc --noEmit`
-- Gate 2: `.github/workflows/claude-review.yml` — invokes `/review-pr` in fresh context via the `reviewer` sub-agent
-- Gate 3: `.github/workflows/codex-adversarial.yml` — invokes `/codex:adversarial-review` from openai/codex-plugin-cc
+## Three Gates (all required, all automated, single workflow)
+All gates run as sequenced jobs in `.github/workflows/pr-gates.yml`:
+- Gate 1: parallel jobs `lint`, `typecheck`, `unit`, `e2e` — Playwright + Vitest + ESLint + `tsc --noEmit`
+- Gate 2: job `claude-review` (needs Gate 1 green) — direct `claude -p "/review-pr"` CLI, captures stdout to file, posts verdict as PR comment via `gh pr comment -F`
+- Gate 3: job `codex-adversarial` (needs Gate 2 green) — `claude -p "/codex:adversarial-review"` via openai/codex-plugin-cc, hard-fails if plugin not loaded
+- `gates-green` (needs all of the above) — alls-green aggregate + `gh pr merge --squash --delete-branch` only if all green
 
-You never merge manually. GitHub Auto-Merge handles the squash on all-green (enabled at PR-open by `enable-auto-merge.yml`). `notify-jo.yml` is post-merge only — it pushes the Notion task + Pushover notification with the production URL for Jo's Visual QA after the merge already happened. There is NO Visual-QA gate before merge.
+You never merge manually. The `gates-green` job auto-mergs directly when all gates are green (no separate auto-merge workflow). `notify-jo.yml` is post-merge only — fires on `pull_request: closed` (merged=true), updates Notion + Pushover with Production URL for Jo's Visual QA. There is NO Visual-QA gate before merge; QA happens on Production.
 
 ## Build / Test / Lint Commands
 - Install: `pnpm install`

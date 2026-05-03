@@ -38,14 +38,16 @@ Hop-3-Bootstrap-Sequenz (alles via gh CLI lokal, du machst's selbst):
    Test-Path .husky/pre-push    # muss True sein
    Get-Content .husky/pre-push   # muss main-block-Logik enthalten
 
-7. Repo-Settings: Auto-Merge + Squash + Delete-Branch-On-Merge:
+7. Repo-Settings: Auto-Merge + Squash + Delete-Branch-On-Merge + PR-Body als Squash-Commit-Message (damit `closes #N` Auto-Close beim Squash-Merge zuverlaessig greift):
    gh api --method PATCH /repos/Jobi0202/{{SLUG}} `
      -F "allow_auto_merge=true" `
      -F "delete_branch_on_merge=true" `
      -F "allow_squash_merge=true" `
      -F "allow_merge_commit=false" `
      -F "allow_rebase_merge=false" `
-     -F "is_template=false"
+     -F "is_template=false" `
+     -F "squash_merge_commit_title=PR_TITLE" `
+     -F "squash_merge_commit_message=PR_BODY"
 
 8. Specs commit + push:
    git add specs/
