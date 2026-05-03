@@ -54,6 +54,34 @@ Hop-3-Bootstrap-Sequenz (alles via gh CLI lokal, du machst's selbst):
    git commit -m "feat: import specs from PM"
    git push
 
+8.5. Vercel-Project bootstrap (kein zweiter manueller Setup-Step mehr fuer Jo):
+   npm install -g vercel@latest
+   vercel whoami
+   # Wenn 'Not logged in': STOPP, sag Jo 'vercel login' einmalig, dann nochmal starten.
+
+   vercel link --yes --project {{SLUG}}
+   vercel deploy --prod --yes > /tmp/vercel_deploy.txt 2>&1
+   cat /tmp/vercel_deploy.txt
+   PROD_URL=$(grep -oE 'https://[a-z0-9.-]+\.vercel\.app' /tmp/vercel_deploy.txt | tail -1)
+   if [ -z "$PROD_URL" ]; then
+     echo "ERROR: Vercel deploy did not return a Production URL."
+     exit 1
+   fi
+   echo "Production URL: $PROD_URL"
+
+   # Eindeutige Sichtbarkeit der Production-URL in GitHub:
+   gh repo edit Jobi0202/{{SLUG}} --homepage "$PROD_URL"
+   {
+     echo "# {{SLUG}}"
+     echo ""
+     echo "🟢 **Live:** $PROD_URL"
+     echo ""
+     tail -n +2 README.md 2>/dev/null
+   } > /tmp/README.new && mv /tmp/README.new README.md
+   git add README.md
+   git commit -m "chore: surface Vercel Production URL"
+   git push
+
 9. Validate setup:
    gh repo view Jobi0202/{{SLUG}} --json name,visibility,isTemplate
    gh secret list --repo Jobi0202/{{SLUG}}

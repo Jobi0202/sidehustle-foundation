@@ -60,6 +60,16 @@ jobs:
                 break;
               }
             }
+            // Fallback: read repo homepage field (set by Builder Step 8.5 to Vercel Production URL)
+            if (!prod_url) {
+              const repo = await github.rest.repos.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              if (repo.data.homepage) {
+                prod_url = repo.data.homepage;
+              }
+            }
             core.setOutput('pr_number', pr.number);
             core.setOutput('pr_title', pr.title);
             core.setOutput('pr_url', pr.html_url);
