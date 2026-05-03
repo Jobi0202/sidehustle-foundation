@@ -13,6 +13,14 @@ Hop-3-Bootstrap-Sequenz (alles via gh CLI lokal, du machst's selbst):
    # Wenn isTemplate=false: gh api --method PATCH /repos/Jobi0202/sidehustle-foundation -F is_template=true
    # ~/.sidehustle-secrets.env muss existieren — sonst stoppen, Jo soll das Template aus dem Repo lokal befuellen.
 
+1.5. App-Install Pre-Check (sonst failen Gates spaeter):
+   gh api /user/installations --jq '.installations[].app_slug'
+   # Erwarte mindestens "claude" und "vercel" in der Liste.
+   # Wenn nicht: STOPP, sag Jo:
+   #   - Claude Code App: https://github.com/apps/claude installieren
+   #   - Vercel: https://github.com/apps/vercel installieren
+   # Erst nach Bestaetigung weiter.
+
 2. Repo aus Template erstellen + clonen:
    gh repo create Jobi0202/{{SLUG}} --private --template Jobi0202/sidehustle-foundation --clone
 
