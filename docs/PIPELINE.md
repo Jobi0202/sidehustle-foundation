@@ -25,6 +25,7 @@ PM Project (Cowork)         ->   Master Agent (Cowork)        ->   Builder (Clau
 - .github/workflows/pr-gates.yml, enable-auto-merge.yml, notify-jo.yml
 - .github/ISSUE_TEMPLATE/* (feature, bug, spike)
 - scripts/* (worktree, port-from-branch, cleanup) PowerShell + Bash
+- scripts/set-secrets-all-repos.sh (bulk-fan-out of central secrets across all owned repos)
 - .env.template (schema for the central secrets file)
 - README.md, .gitignore
 
@@ -47,8 +48,21 @@ The Builder receives the Builder-Prompt and runs lexically inside Claude Code De
 Jo creates ONCE, never again:
 - File: `%USERPROFILE%\.sidehustle-secrets.env` (Windows) / `~/.sidehustle-secrets.env` (WSL)
 - Format: see `.env.template` in this repo
-- Contents: ANTHROPIC_API_KEY, OPENAI_API_KEY, NOTION_API_KEY, NOTION_DATABASE_ID, PUSHOVER_APP_TOKEN, PUSHOVER_USER_KEY
+- Contents: ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, OPENAI_API_KEY, NOTION_API_KEY, NOTION_DATABASE_ID, PUSHOVER_APP_TOKEN, PUSHOVER_USER_KEY
 - Plus: Claude Code GitHub App pre-installed account-wide (one-time grant), Vercel for GitHub installed account-wide
+
+## Rotating Secrets / Back-Filling Older Repos
+
+A key changed (DeepSeek rotation, Anthropic re-issue, …) or an older repo predates a newly added secret? Don't visit each repo. One command pushes the central `.env` into every owned non-archived repo:
+
+```bash
+# Edit the value in $HOME/.sidehustle-secrets.env, then:
+bash scripts/set-secrets-all-repos.sh                       # all repos
+bash scripts/set-secrets-all-repos.sh --repo elternplan-studio   # one repo
+bash scripts/set-secrets-all-repos.sh --dry-run             # preview targets
+```
+
+Idempotent — re-running overwrites existing values. Secret VALUES never appear in logs (only names + repo identifiers). The script lives at `scripts/set-secrets-all-repos.sh` in every project cloned from this template.
 
 ## Anti-Patterns
 

@@ -38,6 +38,10 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Central side-hustle secrets file — lives at %USERPROFILE% / $HOME, never inside any repo.
+# Extra safety net in case someone copies it into a project directory by accident.
+.sidehustle-secrets.env
+
 # Vercel
 .vercel
 

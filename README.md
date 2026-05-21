@@ -32,6 +32,7 @@ Master Agent returns the Builder-Prompt; paste it into Claude Code Desktop. Buil
 - `.github/workflows/notify-jo.yml` — Notion + Pushover post-merge
 - `.github/ISSUE_TEMPLATE/*` — feature, bug, spike
 - `scripts/*` — worktree, port-from-branch, cleanup (PowerShell + Bash)
+- `scripts/set-secrets-all-repos.sh` — bulk-rotate the central `.env` into every owned repo (idempotent)
 - `.husky/pre-push` — main-branch protection (Free-Plan local Türsteher while server-side Branch Protection is paused)
 - `.env.template` — schema for the central secrets file
 
