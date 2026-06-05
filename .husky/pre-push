@@ -6,3 +6,13 @@ if [ "$branch" = "main" ]; then
   echo "But: bypassing pre-push is a Hard-Stop violation per CLAUDE.md."
   exit 1
 fi
+
+# Vercel-Author-Allowlist (verhindert Giro22-Drift, siehe CLAUDE.md §9.7)
+ALLOWED="johannes.rentsch.jr@gmail.com"
+unauthorized=$(git log origin/main..HEAD --format='%ae' 2>/dev/null | grep -vE "^($ALLOWED)$" | sort -u)
+if [ -n "$unauthorized" ]; then
+  echo "ERROR: Commit-Author nicht in Vercel-Allowlist: $unauthorized"
+  echo "Fix: git config --local user.email johannes.rentsch.jr@gmail.com"
+  echo "Then: git rebase -i origin/main  # change pick→edit, then git commit --amend --reset-author && git rebase --continue"
+  exit 1
+fi
