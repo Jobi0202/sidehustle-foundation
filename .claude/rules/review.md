@@ -9,7 +9,7 @@ Every reviewer (Claude sub-agent in Gate 2, Codex plugin in Gate 3) applies this
 3. **Test Sufficiency** — Tests cover every acceptance criterion. At least one E2E for user-facing changes. Regression test for bugs.
 4. **Code Health** — No new magic numbers. No new `any`. No new lint warnings. No unlinked TODO / FIXME. File and function sizes within `anti-spaghetti.md` caps.
 5. **Boy Scout** — In-scope smells in touched files are addressed or logged as `tech-debt` Issues. No silent scope creep.
-6. **Safety** — No secrets. No disabled security checks. No raw SQL outside `lib/db/migrations/`. No new production-writing code without Issue label `jo-approved`.
+6. **Safety** — No secrets. No disabled security checks. No raw SQL outside `lib/db/migrations/`. **Risk paths are auto-labeled, not hand-set:** `.github/workflows/auto-label-risk.yml` stamps `risk:requires-review` on any PR touching migrations, `auth/`, `payments/`, `rls/`, or a write API route (POST/PUT/PATCH/DELETE handler). When that label is present, branch protection requires an architect review before merge — FAIL this criterion if a risk-path change lacks it. Reviewers no longer apply the label manually. For non-risk PRs, just verify no secrets / disabled checks / out-of-migration SQL.
 
 ## Verdict Format (reviewer must emit exactly this)
 
