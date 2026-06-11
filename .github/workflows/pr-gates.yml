@@ -1,16 +1,25 @@
 name: PR Gates
 on:
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 concurrency:
   group: pr-gates-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
+  workflow-lint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
+
   lint:
     name: Lint
+    needs: [workflow-lint]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +33,7 @@ jobs:
 
   typecheck:
     name: Typecheck
+    needs: [workflow-lint]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +47,7 @@ jobs:
 
   unit:
     name: Unit Tests
+    needs: [workflow-lint]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +61,7 @@ jobs:
 
   e2e:
     name: E2E Tests
+    needs: [workflow-lint]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +82,7 @@ jobs:
 
   claude-review:
     name: Claude Review (Gate 2)
-    needs: [lint, typecheck, unit, e2e]
+    needs: [workflow-lint, lint, typecheck, unit, e2e]
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
@@ -127,7 +139,7 @@ jobs:
 
   codex-adversarial:
     name: Codex Adversarial Review (Gate 3)
-    needs: [claude-review]
+    needs: [workflow-lint, claude-review]
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
@@ -161,7 +173,7 @@ jobs:
             claude /plugin list 2>&1 || true
             exit 1
           fi
-          echo "Codex plugin installed and verified.
+          echo "Codex plugin installed and verified."
       - name: Run Codex adversarial review
         id: adv
         run: |
@@ -203,8 +215,8 @@ jobs:
 
   gates-green:
     name: Gates Green
-    if: always() && github.event.pull_request.draft == false
-    needs: [lint, typecheck, unit, e2e, claude-review, codex-adversarial]
+    if: always() && github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'main'
+    needs: [workflow-lint, lint, typecheck, unit, e2e, claude-review, codex-adversarial]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -216,6 +228,22 @@ jobs:
         uses: re-actors/alls-green@release/v1
         with:
           jobs: ${{ toJSON(needs) }}
+
+      - name: Risk-Label-Gate
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          labels=$(gh pr view "$PR" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | join(",")')
+          case ",$labels," in
+            *,risk:requires-review,*)
+              case ",$labels," in
+                *,jo-approved,*) echo "Risk-PR mit jo-approved — Merge erlaubt." ;;
+                *) echo "::error::Risk-PR ohne jo-approved — kein Auto-Merge."; exit 1 ;;
+              esac ;;
+            *) echo "Kein Risk-Label — Merge erlaubt." ;;
+          esac
 
       - name: Squash-merge PR (only after all gates green)
         if: success()
