@@ -90,6 +90,11 @@ if in_gates 'steps\.codex\.outcome'; then
 else
   fail "Gate 3 does not verify codex-action succeeded — continue-on-error could mask a failure"
 fi
+if in_gates 'head -n1 codex-output'; then
+  pass "Gate 3 pins the verdict to the canonical first line (head -n1)"
+else
+  fail "Gate 3 does not pin the verdict to line 1 — preamble/duplicate VERDICT could be honored"
+fi
 
 # --- 5. gates-green aggregates + merges -------------------------------------
 echo "[5/9] gates-green — aggregate + auto-merge"

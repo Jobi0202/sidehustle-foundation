@@ -223,12 +223,14 @@ jobs:
 
       - name: Verify VERDICT format present (Gate 3 format-drift guard)
         run: |
-          # The verdict must come from THIS run's codex output file. No PR-comment
-          # fallback: a historical comment could otherwise mask a missing current verdict.
-          if grep -qE "^VERDICT:" codex-output.md 2>/dev/null; then
-            echo "VERDICT line found in codex output file."
+          # The verdict must be the FIRST line of THIS run's output file and exactly
+          # canonical. Pinning to head -n1 stops any preamble, embedded example, or
+          # duplicate VERDICT line from being honored. No PR-comment fallback.
+          first_line="$(head -n1 codex-output.md 2>/dev/null || true)"
+          if printf '%s\n' "$first_line" | grep -qE '^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)[[:space:]]*$'; then
+            echo "Canonical first-line verdict: $first_line"
           else
-            echo "::error::Gate 3 — no VERDICT: line in codex output (codex-output.md). Format-drift. Failing gate."
+            echo "::error::Gate 3 — first line of codex-output.md is not 'VERDICT: PASS|FAIL|PARTIAL'. Got: ${first_line:-<empty>}. Failing gate."
             exit 1
           fi
 
@@ -237,16 +239,18 @@ jobs:
           # Two independent conditions must hold to pass Gate 3:
           # (1) the codex-action step itself succeeded — guards the continue-on-error
           #     path so an action failure can never be masked by a stale VERDICT: PASS file;
-          # (2) this run's verdict is exactly PASS (FAIL / PARTIAL / missing -> exit 1).
+          # (2) the FIRST line of this run's output is exactly the canonical verdict and
+          #     equals PASS. Parsing only line 1 ignores any later/embedded VERDICT text.
           if [ "${{ steps.codex.outcome }}" != "success" ]; then
             echo "::error::Gate 3 FAILED — codex-action step outcome=${{ steps.codex.outcome }} (not success)."
             exit 1
           fi
-          verdict="$(grep -oE "^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)" codex-output.md 2>/dev/null | head -1 | sed -E 's/^VERDICT:[[:space:]]*//')"
+          first_line="$(head -n1 codex-output.md 2>/dev/null || true)"
+          verdict="$(printf '%s' "$first_line" | sed -nE 's/^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)[[:space:]]*$/\1/p')"
           if [ "$verdict" = "PASS" ]; then
             echo "Gate 3 PASSED (VERDICT: PASS)."
           else
-            echo "::error::Gate 3 FAILED — VERDICT=${verdict:-MISSING} (only PASS merges)."
+            echo "::error::Gate 3 FAILED — first-line verdict=${verdict:-MALFORMED} (only a first-line 'VERDICT: PASS' merges)."
             exit 1
           fi
 
