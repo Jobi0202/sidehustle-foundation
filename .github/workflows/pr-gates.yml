@@ -223,21 +223,25 @@ jobs:
 
       - name: Verify VERDICT format present (Gate 3 format-drift guard)
         run: |
-          # Accept a VERDICT: line from the codex output file OR a posted PR comment;
-          # fail only if neither has one (true format-drift / no verdict produced).
-          PR=${{ github.event.pull_request.number }}
+          # The verdict must come from THIS run's codex output file. No PR-comment
+          # fallback: a historical comment could otherwise mask a missing current verdict.
           if grep -qE "^VERDICT:" codex-output.md 2>/dev/null; then
             echo "VERDICT line found in codex output file."
-          elif gh pr view "$PR" --repo "${{ github.repository }}" --json comments --jq '.comments[].body' | grep -qE "^VERDICT:"; then
-            echo "VERDICT line found in a posted PR comment."
           else
-            echo "::error::Gate 3 — no VERDICT: line in codex output or PR comments. Format-drift. Failing gate."
+            echo "::error::Gate 3 — no VERDICT: line in codex output (codex-output.md). Format-drift. Failing gate."
             exit 1
           fi
 
       - name: Enforce gate verdict
         run: |
-          # Gate 3 merges only on VERDICT: PASS. FAIL, PARTIAL, or a missing verdict -> exit 1.
+          # Two independent conditions must hold to pass Gate 3:
+          # (1) the codex-action step itself succeeded — guards the continue-on-error
+          #     path so an action failure can never be masked by a stale VERDICT: PASS file;
+          # (2) this run's verdict is exactly PASS (FAIL / PARTIAL / missing -> exit 1).
+          if [ "${{ steps.codex.outcome }}" != "success" ]; then
+            echo "::error::Gate 3 FAILED — codex-action step outcome=${{ steps.codex.outcome }} (not success)."
+            exit 1
+          fi
           verdict="$(grep -oE "^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)" codex-output.md 2>/dev/null | head -1 | sed -E 's/^VERDICT:[[:space:]]*//')"
           if [ "$verdict" = "PASS" ]; then
             echo "Gate 3 PASSED (VERDICT: PASS)."

@@ -85,6 +85,11 @@ if in_gates 'Enforce gate verdict'; then
 else
   fail "Gate 3 has no enforce step"
 fi
+if in_gates 'steps\.codex\.outcome'; then
+  pass "Gate 3 enforce checks the codex-action outcome (no continue-on-error masking)"
+else
+  fail "Gate 3 does not verify codex-action succeeded — continue-on-error could mask a failure"
+fi
 
 # --- 5. gates-green aggregates + merges -------------------------------------
 echo "[5/9] gates-green — aggregate + auto-merge"

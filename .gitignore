@@ -58,3 +58,6 @@ yarn-error.log*
 # OS
 *.swp
 *~
+
+# Gate 3 codex-action verdict output (never committed — stale file must not mask a run)
+codex-output.md
