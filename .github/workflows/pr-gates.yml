@@ -272,7 +272,7 @@ jobs:
           summary="$(grep -E '^SEVERITY_SUMMARY: CRITICAL=[0-9]+ ADVISORY=[0-9]+$' codex-output.md | tail -1 || true)"
           sum_crit="$(printf '%s' "$summary" | sed -nE 's/^SEVERITY_SUMMARY: CRITICAL=([0-9]+).*/\1/p')"
           sum_crit="${sum_crit:-0}"
-          tag_crit="$(grep -cE '\[CRITICAL\]' codex-output.md || true)"
+          tag_crit="$(grep -cE '^[[:space:]]*(- )?\[CRITICAL\]' codex-output.md || true)"
           tag_crit="${tag_crit:-0}"
           crit=$(( sum_crit > tag_crit ? sum_crit : tag_crit ))
           if [ "$crit" -gt 0 ]; then
