@@ -282,11 +282,17 @@ jobs:
             *) echo "Kein Risk-Label — Merge erlaubt." ;;
           esac
 
-      - name: Squash-merge PR (only after all gates green)
+      - name: Enable auto-merge (only after all gates green)
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Use --auto, NOT an immediate merge. `Gates Green` is itself a required
+          # status check on main, so an immediate `gh pr merge` is rejected with
+          # "base branch policy prohibits the merge" — at that instant this very job's
+          # check is still in-progress. --auto instead QUEUES the squash-merge; GitHub
+          # fires it the moment all required checks (incl. this job, once it finishes
+          # green) are satisfied. No --admin, required checks respected.
           PR=${{ github.event.pull_request.number }}
-          echo "All gates green. Merging PR #$PR via squash (no local checkout, --repo flag)..."
-          gh pr merge "$PR" --repo ${{ github.repository }} --squash --delete-branch
+          echo "All gates green. Enabling auto-merge (squash) for PR #$PR..."
+          gh pr merge "$PR" --repo ${{ github.repository }} --auto --squash --delete-branch
