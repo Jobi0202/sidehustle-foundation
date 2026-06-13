@@ -12,6 +12,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Cancel an older classify run when a new push arrives, so a stale run cannot finish
+# late and apply a wrong tier label (e.g. strip tier-3) to the current PR head.
+concurrency:
+  group: auto-label-risk-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -100,7 +106,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
           TIER: ${{ steps.classify.outputs.tier }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
+          # Current-head guard: never mutate labels if this run is for an outdated head
+          # (a slow/older run completing after a newer push). Belt-and-suspenders with the
+          # workflow-level concurrency cancellation.
+          current_head="$(gh pr view "$PR" --repo "${{ github.repository }}" --json headRefOid --jq .headRefOid)"
+          if [ "$current_head" != "$EVENT_HEAD" ]; then
+            echo "Run head $EVENT_HEAD is no longer the PR head ($current_head) — stale run, skipping label mutation."
+            exit 0
+          fi
           for t in tier-1 tier-2 tier-3; do
             if [ "$t" = "$TIER" ]; then
               gh pr edit "$PR" --add-label "$t"
