@@ -421,7 +421,13 @@ jobs:
                   fi
                   exit 1 ;;
               esac ;;
-            *) echo "Not tier-3 — merge allowed (tier-1/tier-2 are carried by the gates)." ;;
+            *,tier-1,*|*,tier-2,*)
+              echo "tier-1/tier-2 — carried by the gate strecke, merge allowed." ;;
+            *)
+              # Fail CLOSED: no tier label means auto-label-risk did not classify (failed
+              # or raced). Never auto-merge an unclassified PR — it could be tier-3.
+              echo "::error::No tier-1/2/3 label on PR #$PR — failing closed. Re-run 'Auto-label risk' or add a tier label."
+              exit 1 ;;
           esac
 
       - name: Enable auto-merge (only after all gates green)

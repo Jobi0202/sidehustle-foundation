@@ -23,4 +23,17 @@ describe('regression: issue-21: 3-tier risk classifier + architect-gate', () => 
     expect(gates).toMatch(/tier-3/)
     expect(gates).toMatch(/jo-approved/)
   })
+
+  it('gates-green fails CLOSED when no tier label is present', () => {
+    expect(gates).toMatch(/failing closed/i)
+  })
+
+  it('detects payments money movement from changed file content, not only SQL', () => {
+    expect(risk).toMatch(/payments_files/)
+    expect(risk).toMatch(/pay_up/)
+  })
+
+  it('evaluates DELETE per statement so a safe DELETE cannot mask a dangerous one', () => {
+    expect(risk).toMatch(/PER STATEMENT/)
+  })
 })
