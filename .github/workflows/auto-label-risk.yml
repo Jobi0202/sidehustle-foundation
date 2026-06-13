@@ -40,36 +40,36 @@ jobs:
             sql_up="$(printf '%s\n' "$sql_files" | while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && cat "$f"; done | tr '[:lower:]' '[:upper:]')"
           fi
 
-          tier=tier-1
+          tier="tier-1"
 
           # ---- tier-2: structural risk paths ----
           if printf '%s\n' "$files" | grep -qE '(^|/)(auth|rls|payments)/'; then
-            tier=tier-2; echo "tier-2: auth/rls/payments path"
+            tier="tier-2"; echo "tier-2: auth/rls/payments path"
           fi
           # ---- tier-2: destructive / locking DDL in a migration ----
           if printf '%s' "$sql_up" | grep -qE '\bDROP\b|\bTRUNCATE\b|\bDELETE\b|\bRENAME\b|ALTER[[:space:]].*[[:space:]]TYPE\b|ADD[[:space:]]+CONSTRAINT[^;]*UNIQUE'; then
-            tier=tier-2; echo "tier-2: destructive/locking DDL"
+            tier="tier-2"; echo "tier-2: destructive/locking DDL"
           fi
           # ADD COLUMN ... NOT NULL without DEFAULT locks a populated table.
           if printf '%s' "$sql_up" | grep -qE 'ADD[[:space:]]+COLUMN[^;]*NOT[[:space:]]+NULL' \
              && ! printf '%s' "$sql_up" | grep -qE 'ADD[[:space:]]+COLUMN[^;]*NOT[[:space:]]+NULL[^;]*DEFAULT'; then
-            tier=tier-2; echo "tier-2: ADD COLUMN NOT NULL without DEFAULT"
+            tier="tier-2"; echo "tier-2: ADD COLUMN NOT NULL without DEFAULT"
           fi
 
           # ---- tier-3 overrides (conservative) ----
           if printf '%s' "$sql_up" | grep -qE 'DROP[[:space:]]+TABLE'; then
-            tier=tier-3; echo "tier-3: DROP TABLE"
+            tier="tier-3"; echo "tier-3: DROP TABLE"
           fi
           if printf '%s' "$sql_up" | grep -qE '\bDELETE[[:space:]]+FROM\b' \
              && ! printf '%s' "$sql_up" | grep -qE '\bDELETE[[:space:]]+FROM\b[^;]*WHERE'; then
-            tier=tier-3; echo "tier-3: DELETE without WHERE"
+            tier="tier-3"; echo "tier-3: DELETE without WHERE"
           fi
           if printf '%s\n' "$files" | grep -qE '(^|/)(consent|gdpr|art9)/'; then
-            tier=tier-3; echo "tier-3: consent/GDPR/Art-9 path"
+            tier="tier-3"; echo "tier-3: consent/GDPR/Art-9 path"
           fi
           if printf '%s\n' "$files" | grep -qE '(^|/)payments/' \
              && printf '%s' "$sql_up" | grep -qE 'TRANSFER|CHARGE|PAYOUT|REFUND|BALANCE'; then
-            tier=tier-3; echo "tier-3: payments money movement"
+            tier="tier-3"; echo "tier-3: payments money movement"
           fi
 
           echo "Resolved tier: $tier"
