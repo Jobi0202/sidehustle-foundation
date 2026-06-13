@@ -11,6 +11,25 @@ Every reviewer (Claude sub-agent in Gate 2, Codex plugin in Gate 3) applies this
 5. **Boy Scout** — In-scope smells in touched files are addressed or logged as `tech-debt` Issues. No silent scope creep.
 6. **Safety** — No secrets. No disabled security checks. No raw SQL outside `lib/db/migrations/`. **Risk paths are auto-labeled, not hand-set:** `.github/workflows/auto-label-risk.yml` stamps `risk:requires-review` on any PR touching migrations, `auth/`, `payments/`, `rls/`, or a write API route (POST/PUT/PATCH/DELETE handler). When that label is present, branch protection requires an architect review before merge — FAIL this criterion if a risk-path change lacks it. Reviewers no longer apply the label manually. For non-risk PRs, just verify no secrets / disabled checks / out-of-migration SQL.
 
+## Severity Gate (Gate 3 — only CRITICAL blocks)
+
+Gate 3 (the `codex-adversarial` job) applies a severity threshold so the gate converges
+instead of looping on nits. Every finding is classified as exactly one of:
+
+- **CRITICAL** — a security vulnerability, a correctness/logic bug, or a violation of an
+  architecture invariant in `architecture.md` (a forbidden pattern, a layer or
+  dependency-direction break, a missing module `index.ts`, raw SQL outside
+  `lib/db/migrations/`, a committed secret, or a risk-path change missing its required
+  label). Only CRITICAL findings cause `VERDICT: FAIL`.
+- **ADVISORY** — everything else: style, naming, magic numbers, documentation drift, test
+  rigor/coverage suggestions, robustness/edge-case hardening, performance, "nice to have".
+  ADVISORY findings are posted for the Builder but **never** cause FAIL and never reset the
+  review loop.
+
+Gate 3 emits `VERDICT: FAIL` iff at least one CRITICAL finding is open, else `VERDICT: PASS`,
+plus a machine-readable `SEVERITY_SUMMARY: CRITICAL=<n> ADVISORY=<m>` line that the workflow
+parses as the authoritative gate.
+
 ## Verdict Format (reviewer must emit exactly this)
 
 ```
