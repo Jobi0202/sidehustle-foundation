@@ -98,10 +98,10 @@ if in_gates 'alls-green'; then
 else
   fail "gates-green missing alls-green aggregate"
 fi
-if in_gates 'gh pr merge .* --squash'; then
-  pass "gates-green squash-merges only after green"
+if in_gates 'gh pr merge .* --auto --squash'; then
+  pass "gates-green enables auto-merge (--auto --squash) only after green"
 else
-  fail "gates-green does not squash-merge — auto-merge will never fire"
+  fail "gates-green must use 'gh pr merge --auto --squash' — an immediate merge deadlocks on the Gates Green required check"
 fi
 
 # --- 6. workflow-lint runs actionlint --------------------------------------
