@@ -25,8 +25,8 @@ You are the autonomous operator of this repository. Humans do not read code here
 All gates run as sequenced jobs in `.github/workflows/pr-gates.yml`:
 - Gate 1: parallel jobs `lint`, `typecheck`, `unit`, `e2e` — Playwright + Vitest + ESLint + `tsc --noEmit`
 - Gate 2: job `claude-review` (needs Gate 1 green) — direct `claude -p "/review-pr"` CLI, captures stdout to file, posts verdict as PR comment via `gh pr comment -F`
-- Gate 3: job `codex-adversarial` (needs Gate 2 green) — `claude -p "/codex:adversarial-review"` via openai/codex-plugin-cc, hard-fails if plugin not loaded
-- `gates-green` (needs all of the above) — alls-green aggregate + `gh pr merge --squash --delete-branch` only if all green
+- Gate 3: job `codex-adversarial` (needs Gate 2 green) — runs `openai/codex-action@v1` headless (OpenAI, `sandbox: read-only`) against the PR diff applying `@./.claude/rules/review.md`; posts the VERDICT as a PR comment and blocks unless `VERDICT: PASS` (cross-family anchor: Gate 2 DeepSeek, Gate 3 OpenAI)
+- `gates-green` (needs all of the above) — alls-green aggregate + `gh pr merge --auto --squash --delete-branch` only if all green (`--auto` queues the merge so it isn't blocked by the `Gates Green` required check being mid-run)
 
 You never merge manually. The `gates-green` job auto-mergs directly when all gates are green (no separate auto-merge workflow). `notify-jo.yml` is post-merge only — fires on `pull_request: closed` (merged=true), updates Notion + Pushover with Production URL for Jo's Visual QA. There is NO Visual-QA gate before merge; QA happens on Production.
 
