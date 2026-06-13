@@ -34,8 +34,11 @@ jobs:
         run: |
           set -uo pipefail
 
+          report="$(mktemp)"
+          app() { printf '%s\n' "$*" >> "$report"; }
+
           # --- foundation reference ---
-          ref_wf="$(cd .github/workflows && ls -1 *.yml | sort)"
+          ref_wf="$(find .github/workflows -maxdepth 1 -name '*.yml' -printf '%f\n' | sort)"
           extract_jobs() {
             awk '
               /^jobs:/ {injobs=1; next}
@@ -45,62 +48,64 @@ jobs:
           }
           ref_jobs="$(extract_jobs .github/workflows/pr-gates.yml)"
 
-          repos_file="scripts/idea-repos.txt"
-          report="/tmp/drift-report.md"
           drift="false"
           short=""
 
-          {
-            echo "# Fleet Drift Report"
-            echo
-            echo "Reference: \`Jobi0202/sidehustle-foundation\` @ \`$(git rev-parse --short HEAD)\`"
-            echo
-          } > "$report"
+          app "# Fleet Drift Report"
+          app ""
+          app "Reference: \`Jobi0202/sidehustle-foundation\` @ \`$(git rev-parse --short HEAD)\`"
+          app ""
 
           while IFS= read -r repo; do
-            repo="$(echo "$repo" | sed 's/#.*//' | xargs)"
+            repo="$(printf '%s' "$repo" | sed 's/#.*//' | xargs)"
             [ -n "$repo" ] || continue
-            echo "## \`$repo\`" >> "$report"
+            app "## \`$repo\`"
 
             # Remote workflow filenames.
             if ! remote_wf="$(gh api "repos/$repo/contents/.github/workflows" --jq '.[].name' 2>/tmp/gh.err | sort)"; then
               drift="true"; short="$short $repo:unreadable"
-              echo "- ⚠️ **Unreadable** (\`$(cat /tmp/gh.err | head -1)\`). Needs FLEET_AUDIT_TOKEN with read access." >> "$report"
-              echo >> "$report"
+              app "- ⚠️ **Unreadable** (\`$(head -1 /tmp/gh.err)\`). Needs FLEET_AUDIT_TOKEN with read access."
+              app ""
               continue
             fi
 
-            wf_diff="$(diff <(echo "$ref_wf") <(echo "$remote_wf") || true)"
+            wf_diff="$(diff <(printf '%s\n' "$ref_wf") <(printf '%s\n' "$remote_wf") || true)"
             if [ -n "$wf_diff" ]; then
               drift="true"; short="$short $repo:workflows"
-              echo "- ❌ **Workflow set differs** (\`<\` foundation-only, \`>\` repo-only):" >> "$report"
-              echo '```diff' >> "$report"; echo "$wf_diff" >> "$report"; echo '```' >> "$report"
+              app "- ❌ **Workflow set differs** (\`<\` foundation-only, \`>\` repo-only):"
+              app '```diff'
+              app "$wf_diff"
+              app '```'
             else
-              echo "- ✅ Workflow set matches." >> "$report"
+              app "- ✅ Workflow set matches."
             fi
 
             # Remote pr-gates.yml job list.
             if remote_gates="$(gh api "repos/$repo/contents/.github/workflows/pr-gates.yml" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null)"; then
-              echo "$remote_gates" > /tmp/remote-pr-gates.yml
+              printf '%s\n' "$remote_gates" > /tmp/remote-pr-gates.yml
               remote_jobs="$(extract_jobs /tmp/remote-pr-gates.yml)"
-              job_diff="$(diff <(echo "$ref_jobs") <(echo "$remote_jobs") || true)"
+              job_diff="$(diff <(printf '%s\n' "$ref_jobs") <(printf '%s\n' "$remote_jobs") || true)"
               if [ -n "$job_diff" ]; then
                 drift="true"; short="$short $repo:jobs"
-                echo "- ❌ **pr-gates job list differs:**" >> "$report"
-                echo '```diff' >> "$report"; echo "$job_diff" >> "$report"; echo '```' >> "$report"
+                app "- ❌ **pr-gates job list differs:**"
+                app '```diff'
+                app "$job_diff"
+                app '```'
               else
-                echo "- ✅ pr-gates job list matches." >> "$report"
+                app "- ✅ pr-gates job list matches."
               fi
             else
               drift="true"; short="$short $repo:no-pr-gates"
-              echo "- ❌ **pr-gates.yml missing or unreadable.**" >> "$report"
+              app "- ❌ **pr-gates.yml missing or unreadable.**"
             fi
-            echo >> "$report"
-          done < "$repos_file"
+            app ""
+          done < "scripts/idea-repos.txt"
 
           cat "$report" >> "$GITHUB_STEP_SUMMARY"
-          echo "drift=$drift" >> "$GITHUB_OUTPUT"
-          echo "short=${short:-all repos in sync}" >> "$GITHUB_OUTPUT"
+          {
+            echo "drift=$drift"
+            echo "short=${short:-all repos in sync}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Pushover on drift
         if: steps.audit.outputs.drift == 'true'
