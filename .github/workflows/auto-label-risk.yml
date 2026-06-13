@@ -1,13 +1,11 @@
-# Auto-label risk PRs (jo-approved Option C, Welle 1.6 Block G).
-# Path-based risk classifier: a PR that touches migrations, auth, payments, RLS,
-# or a write API route (POST/PUT/PATCH/DELETE handler) is auto-labeled
-# `risk:requires-review`. Branch protection then requires an architect review
-# for that label (configured by Jo in repo settings). The label is applied
-# automatically — reviewers no longer set it by hand (review.md Criterion 6).
-#
-# Pluginbar in jede Side-Hustle (Foundation-Repo). Non-risk PRs (UI, specs,
-# docs, tests, read-only routes) run No-Touch — the label is removed if a later
-# push drops the risk path.
+# 3-Tier risk classifier (P1b). Stamps EXACTLY ONE label tier-1 / tier-2 / tier-3 on
+# every PR, replacing the old binary `risk:requires-review`:
+#   tier-1 — routine / additive: the normal gate strecke decides.
+#   tier-2 — technically risky (auth/rls/payments code, or destructive/locking DDL):
+#            the `architect-gate` job (Anthropic Opus) must pass. No Jo ping.
+#   tier-3 — business/legal risk (money movement, DROP TABLE / DELETE without WHERE,
+#            consent / GDPR Art-9): blocked in gates-green unless `jo-approved`, Jo pinged.
+# SQL heuristics are line-based and deliberately conservative ("im Zweifel tier-3").
 name: Auto-label risk
 
 on:
@@ -28,58 +26,74 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Classify changed files
+      - name: Classify changed files into a tier
         id: classify
         run: |
           base='${{ github.event.pull_request.base.sha }}'
           head='${{ github.event.pull_request.head.sha }}'
           files="$(git diff --name-only "$base" "$head")"
-          echo "Changed files:"; echo "$files"
+          echo "Changed files:"; printf '%s\n' "$files"
 
-          risk=false
-          # Structural risk paths: migrations / auth / payments / rls.
-          if echo "$files" | grep -qE '(^|/)migrations/.*\.sql$|(^|/)auth/|(^|/)payments/|(^|/)rls/'; then
-            risk=true
-            echo "Hit: structural risk path"
+          sql_files="$(printf '%s\n' "$files" | grep -E '(^|/)migrations/.*\.sql$' || true)"
+          sql_up=""
+          if [ -n "$sql_files" ]; then
+            sql_up="$(printf '%s\n' "$sql_files" | while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && cat "$f"; done | tr '[:lower:]' '[:upper:]')"
           fi
 
-          # Write API routes: a changed route handler that exports a mutating verb.
-          if [ "$risk" = "false" ]; then
-            while IFS= read -r f; do
-              [ -n "$f" ] || continue
-              [ -f "$f" ] || continue
-              case "$f" in
-                *route.ts|*route.js|*/api/*)
-                  if grep -qE 'export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(POST|PUT|PATCH|DELETE)\b' "$f"; then
-                    risk=true
-                    echo "Hit: write API route -> $f"
-                    break
-                  fi
-                  ;;
-              esac
-            done <<< "$files"
+          tier=tier-1
+
+          # ---- tier-2: structural risk paths ----
+          if printf '%s\n' "$files" | grep -qE '(^|/)(auth|rls|payments)/'; then
+            tier=tier-2; echo "tier-2: auth/rls/payments path"
+          fi
+          # ---- tier-2: destructive / locking DDL in a migration ----
+          if printf '%s' "$sql_up" | grep -qE '\bDROP\b|\bTRUNCATE\b|\bDELETE\b|\bRENAME\b|ALTER[[:space:]].*[[:space:]]TYPE\b|ADD[[:space:]]+CONSTRAINT[^;]*UNIQUE'; then
+            tier=tier-2; echo "tier-2: destructive/locking DDL"
+          fi
+          # ADD COLUMN ... NOT NULL without DEFAULT locks a populated table.
+          if printf '%s' "$sql_up" | grep -qE 'ADD[[:space:]]+COLUMN[^;]*NOT[[:space:]]+NULL' \
+             && ! printf '%s' "$sql_up" | grep -qE 'ADD[[:space:]]+COLUMN[^;]*NOT[[:space:]]+NULL[^;]*DEFAULT'; then
+            tier=tier-2; echo "tier-2: ADD COLUMN NOT NULL without DEFAULT"
           fi
 
-          echo "risk=$risk" >> "$GITHUB_OUTPUT"
+          # ---- tier-3 overrides (conservative) ----
+          if printf '%s' "$sql_up" | grep -qE 'DROP[[:space:]]+TABLE'; then
+            tier=tier-3; echo "tier-3: DROP TABLE"
+          fi
+          if printf '%s' "$sql_up" | grep -qE '\bDELETE[[:space:]]+FROM\b' \
+             && ! printf '%s' "$sql_up" | grep -qE '\bDELETE[[:space:]]+FROM\b[^;]*WHERE'; then
+            tier=tier-3; echo "tier-3: DELETE without WHERE"
+          fi
+          if printf '%s\n' "$files" | grep -qE '(^|/)(consent|gdpr|art9)/'; then
+            tier=tier-3; echo "tier-3: consent/GDPR/Art-9 path"
+          fi
+          if printf '%s\n' "$files" | grep -qE '(^|/)payments/' \
+             && printf '%s' "$sql_up" | grep -qE 'TRANSFER|CHARGE|PAYOUT|REFUND|BALANCE'; then
+            tier=tier-3; echo "tier-3: payments money movement"
+          fi
 
-      - name: Ensure label exists
+          echo "Resolved tier: $tier"
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure tier labels exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh label create "risk:requires-review" \
-            --color B60205 \
-            --description "Touches migrations/auth/payments/rls/write-API — needs an architect review" \
-            --force
+          gh label create tier-1 --color 0E8A16 --description "Routine/additive — the gate strecke decides" --force
+          gh label create tier-2 --color D93F0B --description "Technically risky — architect-gate must pass" --force
+          gh label create tier-3 --color B60205 --description "Business/legal risk — needs jo-approved" --force
 
-      - name: Apply or clear label
+      - name: Apply exactly one tier label
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
+          TIER: ${{ steps.classify.outputs.tier }}
         run: |
-          if [ "${{ steps.classify.outputs.risk }}" = "true" ]; then
-            echo "Risk path hit → labeling PR #$PR"
-            gh pr edit "$PR" --add-label "risk:requires-review"
-          else
-            echo "No risk path → ensuring label is absent on PR #$PR"
-            gh pr edit "$PR" --remove-label "risk:requires-review" || true
-          fi
+          for t in tier-1 tier-2 tier-3; do
+            if [ "$t" = "$TIER" ]; then
+              gh pr edit "$PR" --add-label "$t"
+            else
+              gh pr edit "$PR" --remove-label "$t" || true
+            fi
+          done
+          echo "Labeled PR #$PR as $TIER."

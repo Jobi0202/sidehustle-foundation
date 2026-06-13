@@ -297,10 +297,91 @@ jobs:
           fi
           echo "Gate 3 PASSED — 0 CRITICAL findings; advisories (if any) are non-blocking."
 
+  architect-gate:
+    name: Architect Gate (tier-2/3)
+    needs: [workflow-lint, claude-review]
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    # Third model family (Gate 2 DeepSeek, Gate 3 OpenAI, architect Anthropic-Opus).
+    # Always runs and resolves the tier at RUNTIME (no job-level `if` on event-payload
+    # labels — that races auto-label-risk). For tier-1 it is a no-op PASS, so it can sit
+    # in gates-green needs without alls-green skip handling.
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Determine tier (runtime query)
+        id: tier
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          # This job starts after Gate 2 (~minutes), so auto-label-risk has labeled by now.
+          # Poll briefly; if no tier label appears, fail CLOSED (run the architect review).
+          run=true
+          labels=""
+          for i in 1 2 3 4 5 6; do
+            labels="$(gh pr view "$PR" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | join(",")')"
+            case ",$labels," in
+              *,tier-2,*|*,tier-3,*) run=true; break ;;
+              *,tier-1,*) run=false; break ;;
+              *) sleep 5 ;;
+            esac
+          done
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "architect-gate run=$run (labels: ${labels:-none})"
+      - name: Install Claude Code CLI
+        if: steps.tier.outputs.run == 'true'
+        run: npm install -g @anthropic-ai/claude-code@latest
+      - name: Architect review (Anthropic Opus — irreversibility + schema-safety)
+        if: steps.tier.outputs.run == 'true'
+        id: arch
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set +e
+          BASE='${{ github.event.pull_request.base.sha }}'
+          claude -p "You are the ARCHITECT GATE for a tier-2/tier-3 risk PR. Review the diff: run \`git diff $BASE HEAD\`. Judge EXCLUSIVELY two things: (1) IRREVERSIBILITY — destructive or breaking DDL / data loss that cannot be cleanly rolled back; (2) SCHEMA-SAFETY against existing rows — e.g. ADD COLUMN NOT NULL without DEFAULT on a populated table, type narrowing, a UNIQUE constraint on possibly-duplicate data, or a long-locking migration. Your FIRST line must be exactly 'VERDICT: PASS' or 'VERDICT: FAIL', then 2-6 lines of evidence. PASS only if the change is reversible AND safe against existing rows; otherwise FAIL." --model opus > /tmp/arch.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          echo "--- architect output ---"; cat /tmp/arch.txt
+          exit 0
+      - name: Post architect verdict to PR
+        if: steps.tier.outputs.run == 'true'
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          {
+            echo "## Architect Gate (tier-2/3) — Anthropic Opus"
+            echo ""
+            if [ -s /tmp/arch.txt ]; then cat /tmp/arch.txt; else echo "_No architect output (treated as FAIL)._"; fi
+          } > /tmp/arch_comment.md
+          gh pr comment "$PR" -F /tmp/arch_comment.md || true
+      - name: Enforce architect verdict
+        if: steps.tier.outputs.run == 'true'
+        run: |
+          if [ "${{ steps.arch.outputs.exit_code }}" != "0" ]; then
+            echo "::error::Architect gate — claude CLI exited non-zero."
+            exit 1
+          fi
+          first_line="$(head -n1 /tmp/arch.txt 2>/dev/null || true)"
+          verdict="$(printf '%s' "$first_line" | sed -nE 's/^VERDICT:[[:space:]]*(PASS|FAIL)[[:space:]]*$/\1/p')"
+          if [ "$verdict" = "PASS" ]; then
+            echo "Architect gate PASSED (VERDICT: PASS)."
+          else
+            echo "::error::Architect gate FAILED — first-line verdict=${verdict:-MALFORMED} (needs-rework)."
+            exit 1
+          fi
+      - name: Tier-1 — architect gate not required
+        if: steps.tier.outputs.run != 'true'
+        run: echo "PR is tier-1 — architect gate not required. PASS."
+
   gates-green:
     name: Gates Green
     if: always() && github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'main'
-    needs: [workflow-lint, lint, typecheck, unit, e2e, claude-review, codex-adversarial]
+    needs: [workflow-lint, lint, typecheck, unit, e2e, claude-review, codex-adversarial, architect-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -313,20 +394,34 @@ jobs:
         with:
           jobs: ${{ toJSON(needs) }}
 
-      - name: Risk-Label-Gate
+      - name: Tier-3 gate (business/legal risk needs jo-approved)
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
         run: |
           PR=${{ github.event.pull_request.number }}
           labels=$(gh pr view "$PR" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | join(",")')
           case ",$labels," in
-            *,risk:requires-review,*)
+            *,tier-3,*)
               case ",$labels," in
-                *,jo-approved,*) echo "Risk-PR mit jo-approved — Merge erlaubt." ;;
-                *) echo "::error::Risk-PR ohne jo-approved — kein Auto-Merge."; exit 1 ;;
+                *,jo-approved,*) echo "tier-3 + jo-approved — merge allowed." ;;
+                *)
+                  echo "::error::tier-3 without jo-approved — auto-merge blocked until Jo approves."
+                  if [ -n "${PUSHOVER_APP_TOKEN:-}" ] && [ -n "${PUSHOVER_USER_KEY:-}" ]; then
+                    curl -sS https://api.pushover.net/1/messages.json \
+                      --form-string "token=${PUSHOVER_APP_TOKEN}" \
+                      --form-string "user=${PUSHOVER_USER_KEY}" \
+                      --form-string "title=tier-3 PR needs your approval: #${PR}" \
+                      --form-string "message=PR #${PR} is tier-3 (business/legal risk: money movement, data loss, or consent/GDPR) and is blocked until you add the jo-approved label. Read the Architect Gate verdict on the PR for what/why-risky/recommendation." \
+                      --form-string "url=${{ github.server_url }}/${{ github.repository }}/pull/${PR}" \
+                      --form-string "url_title=Open PR" \
+                      --form-string "priority=1" || true
+                  fi
+                  exit 1 ;;
               esac ;;
-            *) echo "Kein Risk-Label — Merge erlaubt." ;;
+            *) echo "Not tier-3 — merge allowed (tier-1/tier-2 are carried by the gates)." ;;
           esac
 
       - name: Enable auto-merge (only after all gates green)
