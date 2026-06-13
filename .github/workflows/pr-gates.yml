@@ -197,14 +197,34 @@ jobs:
             `git diff ${{ github.event.pull_request.base.sha }} HEAD` to see every change.
 
             Apply the rubric in ./.claude/rules/review.md — all six criteria (Issue Match,
-            Architecture, Test Sufficiency, Code Health, Boy Scout, Safety). Be adversarial:
-            actively hunt for reasons to FAIL. Per that rubric, a risk-path change missing
-            its required label fails Safety.
+            Architecture, Test Sufficiency, Code Health, Boy Scout, Safety). Be adversarial,
+            but apply the SEVERITY GATE in ./.claude/rules/review.md. Classify every finding
+            as exactly one severity:
+              - CRITICAL: a security vulnerability, a correctness/logic bug, or a violation
+                of an architecture invariant in ./.claude/rules/architecture.md (a forbidden
+                pattern, a layer/dependency-direction break, a missing module index.ts, raw
+                SQL outside migrations, a committed secret, or a risk-path change missing its
+                required label).
+              - ADVISORY: everything else — style, naming, magic numbers, documentation
+                drift, test rigor/coverage suggestions, robustness/edge-case hardening,
+                performance, "nice to have". ADVISORY findings NEVER cause FAIL.
 
-            Your FINAL message must be the verdict in EXACTLY the canonical format defined in
-            ./.claude/rules/review.md. Its very first line must be one of
-            `VERDICT: PASS`, `VERDICT: FAIL`, or `VERDICT: PARTIAL`, followed by the CRITERIA,
-            BLOCKING FINDINGS, and NON-BLOCKING SUGGESTIONS sections. Output only the verdict.
+            Decide the verdict by this rule ONLY:
+              VERDICT: FAIL  iff there is at least one CRITICAL finding;
+              VERDICT: PASS  iff there are zero CRITICAL findings (ADVISORY findings are OK).
+
+            Delta-awareness: if you have reviewed this PR before, read your previous verdict
+            comment first. Do NOT re-raise findings the current diff already resolves, and do
+            NOT invent new ADVISORY side-quests to justify a FAIL.
+
+            Output format (output ONLY this, nothing else):
+            - FIRST line, exactly: `VERDICT: PASS` or `VERDICT: FAIL`.
+            - Then the six CRITERIA lines (`- <Criterion>: PASS|FAIL — <evidence>`).
+            - Then `FINDINGS:` and one line per finding, each starting with `[CRITICAL]` or
+              `[ADVISORY]` followed by `<path:line> — <required fix>`. Write `[none]` if there
+              are no findings.
+            - LAST line, exactly: `SEVERITY_SUMMARY: CRITICAL=<n> ADVISORY=<m>` where <n> is
+              the number of [CRITICAL] lines and <m> the number of [ADVISORY] lines.
 
       - name: Post Codex verdict to PR
         if: always()
@@ -223,36 +243,43 @@ jobs:
 
       - name: Verify VERDICT format present (Gate 3 format-drift guard)
         run: |
-          # The verdict must be the FIRST line of THIS run's output file and exactly
-          # canonical. Pinning to head -n1 stops any preamble, embedded example, or
-          # duplicate VERDICT line from being honored. No PR-comment fallback.
+          # Fail-safe: any format drift => FAIL, so a malformed review can never become a
+          # silent PASS. Requires (a) a canonical first-line VERDICT and (b) the
+          # machine-readable SEVERITY_SUMMARY line the enforce step parses.
           first_line="$(head -n1 codex-output.md 2>/dev/null || true)"
-          if printf '%s\n' "$first_line" | grep -qE '^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)[[:space:]]*$'; then
-            echo "Canonical first-line verdict: $first_line"
-          else
-            echo "::error::Gate 3 — first line of codex-output.md is not 'VERDICT: PASS|FAIL|PARTIAL'. Got: ${first_line:-<empty>}. Failing gate."
+          if ! printf '%s\n' "$first_line" | grep -qE '^VERDICT:[[:space:]]*(PASS|FAIL)[[:space:]]*$'; then
+            echo "::error::Gate 3 — first line of codex-output.md is not 'VERDICT: PASS|FAIL'. Got: ${first_line:-<empty>}. Failing gate."
             exit 1
           fi
+          if ! grep -qE '^SEVERITY_SUMMARY: CRITICAL=[0-9]+ ADVISORY=[0-9]+$' codex-output.md; then
+            echo "::error::Gate 3 — missing 'SEVERITY_SUMMARY: CRITICAL=<n> ADVISORY=<m>' line (format drift). Failing gate."
+            exit 1
+          fi
+          echo "Format OK: $first_line"
 
-      - name: Enforce gate verdict
+      - name: Enforce gate verdict (severity gate — only CRITICAL blocks)
         run: |
-          # Two independent conditions must hold to pass Gate 3:
-          # (1) the codex-action step itself succeeded — guards the continue-on-error
-          #     path so an action failure can never be masked by a stale VERDICT: PASS file;
-          # (2) the FIRST line of this run's output is exactly the canonical verdict and
-          #     equals PASS. Parsing only line 1 ignores any later/embedded VERDICT text.
+          # (1) The codex-action step itself must have succeeded (guards continue-on-error
+          #     so an action failure can never be masked by a stale output file).
           if [ "${{ steps.codex.outcome }}" != "success" ]; then
             echo "::error::Gate 3 FAILED — codex-action step outcome=${{ steps.codex.outcome }} (not success)."
             exit 1
           fi
-          first_line="$(head -n1 codex-output.md 2>/dev/null || true)"
-          verdict="$(printf '%s' "$first_line" | sed -nE 's/^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)[[:space:]]*$/\1/p')"
-          if [ "$verdict" = "PASS" ]; then
-            echo "Gate 3 PASSED (VERDICT: PASS)."
-          else
-            echo "::error::Gate 3 FAILED — first-line verdict=${verdict:-MALFORMED} (only a first-line 'VERDICT: PASS' merges)."
+          # (2) Authoritative severity gate, computed by the workflow (not codex's self-
+          #     verdict): block iff there is >= 1 CRITICAL finding, by the MAX of two
+          #     independent measures — the SEVERITY_SUMMARY count and the number of
+          #     [CRITICAL]-tagged finding lines. ADVISORY findings never block.
+          summary="$(grep -E '^SEVERITY_SUMMARY: CRITICAL=[0-9]+ ADVISORY=[0-9]+$' codex-output.md | tail -1 || true)"
+          sum_crit="$(printf '%s' "$summary" | sed -nE 's/^SEVERITY_SUMMARY: CRITICAL=([0-9]+).*/\1/p')"
+          sum_crit="${sum_crit:-0}"
+          tag_crit="$(grep -cE '^[[:space:]]*(- )?\[CRITICAL\]' codex-output.md || true)"
+          tag_crit="${tag_crit:-0}"
+          crit=$(( sum_crit > tag_crit ? sum_crit : tag_crit ))
+          if [ "$crit" -gt 0 ]; then
+            echo "::error::Gate 3 FAILED — ${crit} CRITICAL finding(s). (ADVISORY findings are non-blocking.)"
             exit 1
           fi
+          echo "Gate 3 PASSED — 0 CRITICAL findings; advisories (if any) are non-blocking."
 
   gates-green:
     name: Gates Green
