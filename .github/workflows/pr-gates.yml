@@ -156,12 +156,28 @@ jobs:
           fi
 
       - name: Enforce Gate 2 verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          PR=${{ github.event.pull_request.number }}
+          # Condition 1 (independent): the reviewer CLI must have exited 0.
           if [ "${{ steps.claude_review.outputs.exit_code }}" != "0" ]; then
-            echo "Claude Review returned non-zero exit. Gate 2 FAILED."
+            echo "::error::Gate 2 FAILED — Claude Review returned non-zero exit."
             exit 1
           fi
-          echo "Gate 2 PASSED."
+          # Condition 2 (independent): the VERDICT *content* must be PASS. The reviewer
+          # posts the canonical verdict to a PR comment and/or stdout; read the VERDICT
+          # value from stdout first, else from the latest PR comment.
+          verdict="$(grep -oE '^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)' /tmp/claude_review.txt 2>/dev/null | head -1 | awk '{print $2}')"
+          if [ -z "$verdict" ]; then
+            verdict="$(gh pr view "$PR" --repo "${{ github.repository }}" --json comments --jq '.comments[].body' | grep -oE '^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)' | tail -1 | awk '{print $2}')"
+          fi
+          if [ "$verdict" = "PASS" ]; then
+            echo "Gate 2 PASSED (VERDICT: PASS, exit 0)."
+          else
+            echo "::error::Gate 2 FAILED — verdict=${verdict:-MISSING} (only VERDICT: PASS passes)."
+            exit 1
+          fi
 
   codex-adversarial:
     name: Codex Adversarial Review (Gate 3)

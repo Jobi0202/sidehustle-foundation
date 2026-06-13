@@ -58,5 +58,20 @@ NON-BLOCKING SUGGESTIONS:
 ## FAIL Requires Action
 Builder reads the structured verdict, addresses every BLOCKING finding, pushes. The reviewer workflow re-runs automatically on the new push.
 
+## Re-Review Delta (every cycle after the first)
+On a re-review, the reviewer reads its previous VERDICT on the PR and checks EACH prior
+blocking finding against the CURRENT diff — marking it `BEHOBEN` (with file/SHA evidence)
+or `WEITERHIN OFFEN` — then recomputes the verdict from the current state. Do not repeat
+a first-snapshot judgment, and do not open new side-quest findings when the prior ones are
+resolved. This is what makes the loop converge instead of surfacing a fresh nit each cycle.
+
+## Merge Discrepancy (Gate 2 vs Gate 3)
+When Gate 2 and Gate 3 contradict each other on the same criterion (one PASS, one FAIL),
+the later gate posts a short **discrepancy note** as a PR comment — naming the criterion,
+the file/line, and the SHA it judged — and applies the `review-bot-drift` label so the
+divergence is visible rather than silently resolved by merge order. This does not change
+the merge rule (Gate 3's severity gate still decides) and does not duplicate the **Loop
+Cap** below — it only records that the two reviewers disagreed.
+
 ## Loop Cap
 Maximum 3 review cycles per PR. On the 4th consecutive FAIL, the workflow labels the PR `needs-jo` and triggers Pushover. The Builder stops pushing and waits.

@@ -72,6 +72,11 @@ if in_gates 'Enforce Gate 2 verdict'; then
 else
   fail "Gate 2 has no enforce step — a failing review cannot block merge"
 fi
+if in_gates 'only VERDICT: PASS passes'; then
+  pass "Gate 2 enforce parses the VERDICT content (not just the CLI exit code)"
+else
+  fail "Gate 2 enforce does not parse VERDICT content — a FAIL verdict with exit 0 would pass"
+fi
 
 # --- 4. Gate 3 (codex-adversarial) posts + enforces ------------------------
 echo "[4/9] Gate 3 — Codex adversarial verdict"
