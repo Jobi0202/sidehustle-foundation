@@ -11,6 +11,10 @@
 # `workflow_run` is NOT suppressed — "PR Gates" is started by a real user's PR push.
 # When it finishes green, gates-green has just enabled auto-merge, so we resolve the
 # associated PR and poll until it actually merges, then notify. No PAT, no new secret.
+#
+# Security: all PR-controlled metadata (title, body, url) is passed via `env:` and
+# referenced as quoted shell variables — never interpolated as `${{ }}` into a
+# `run:` block, which would let a crafted PR title execute shell with secrets present.
 name: Notify Jo (Post-Merge Visual QA)
 
 on:
@@ -35,10 +39,14 @@ jobs:
     steps:
       - name: Resolve PR and wait for the auto-merge to land
         id: pr
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         uses: actions/github-script@v7
         with:
           script: |
-            const headSha = context.payload.workflow_run.head_sha;
+            const MAX_POLLS = 12;            // up to ~2 min total
+            const POLL_INTERVAL_MS = 10000;  // 10s between polls
+            const headSha = process.env.HEAD_SHA;
             const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner: context.repo.owner, repo: context.repo.repo, commit_sha: headSha,
             });
@@ -46,14 +54,14 @@ jobs:
             if (!pr0) { core.info('No PR for this commit — skipping.'); core.setOutput('merged', 'false'); return; }
             // gates-green enables --auto just before the run completes; poll until merged.
             let pr = pr0;
-            for (let i = 0; i < 12; i++) {
+            for (let i = 0; i < MAX_POLLS; i++) {
               const { data } = await github.rest.pulls.get({
                 owner: context.repo.owner, repo: context.repo.repo, pull_number: pr0.number,
               });
               pr = data;
               if (pr.merged) break;
               if (pr.state === 'closed' && !pr.merged) { core.info('PR closed unmerged — skipping.'); core.setOutput('merged', 'false'); return; }
-              await new Promise(r => setTimeout(r, 10000));
+              await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
             }
             if (!pr.merged) { core.info('PR not merged within timeout — no auto-merge, skipping.'); core.setOutput('merged', 'false'); return; }
             core.setOutput('merged', 'true');
@@ -91,10 +99,12 @@ jobs:
       - name: Gather production deployment URL
         if: steps.pr.outputs.merged == 'true'
         id: info
+        env:
+          MERGE_SHA: ${{ steps.pr.outputs.merge_sha }}
         uses: actions/github-script@v7
         with:
           script: |
-            const head_sha = '${{ steps.pr.outputs.merge_sha }}';
+            const head_sha = process.env.MERGE_SHA;
             const deployments = await github.rest.repos.listDeployments({
               owner: context.repo.owner, repo: context.repo.repo, sha: head_sha,
             });
@@ -119,21 +129,26 @@ jobs:
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          PROD_URL: ${{ steps.info.outputs.prod_url }}
+          HEAD_SHA: ${{ steps.info.outputs.head_sha }}
         run: |
           if [ -z "${NOTION_API_KEY}" ] || [ -z "${NOTION_DATABASE_ID}" ]; then
             echo "Notion secrets not configured, skipping."
             exit 0
           fi
+          # All dynamic values come from env vars (quoted) — never shell-evaluated.
           curl -sS -X POST https://api.notion.com/v1/pages \
             -H "Authorization: Bearer ${NOTION_API_KEY}" \
             -H "Notion-Version: 2022-06-28" \
             -H "Content-Type: application/json" \
             -d "$(jq -n \
               --arg db "$NOTION_DATABASE_ID" \
-              --arg title "Merged: ${{ steps.pr.outputs.title }}" \
-              --arg pr "${{ steps.pr.outputs.url }}" \
-              --arg prod "${{ steps.info.outputs.prod_url }}" \
-              --arg sha "${{ steps.info.outputs.head_sha }}" \
+              --arg title "Merged: $PR_TITLE" \
+              --arg pr "$PR_URL" \
+              --arg prod "$PROD_URL" \
+              --arg sha "$HEAD_SHA" \
               '{
                 parent: { database_id: $db },
                 properties: {
@@ -150,16 +165,20 @@ jobs:
         env:
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
           PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          PROD_URL: ${{ steps.info.outputs.prod_url }}
         run: |
           if [ -z "${PUSHOVER_APP_TOKEN}" ] || [ -z "${PUSHOVER_USER_KEY}" ]; then
             echo "Pushover secrets not configured, skipping."
             exit 0
           fi
+          # All dynamic values come from env vars (quoted) — never shell-evaluated.
           curl -sS https://api.pushover.net/1/messages.json \
             --form-string "token=${PUSHOVER_APP_TOKEN}" \
             --form-string "user=${PUSHOVER_USER_KEY}" \
-            --form-string "title=Merged: PR #${{ steps.pr.outputs.number }}" \
-            --form-string "message=${{ steps.pr.outputs.title }} - merged to main, Visual QA on production." \
-            --form-string "url=${{ steps.info.outputs.prod_url }}" \
+            --form-string "title=Merged: PR #${PR_NUMBER}" \
+            --form-string "message=${PR_TITLE} - merged to main, Visual QA on production." \
+            --form-string "url=${PROD_URL}" \
             --form-string "url_title=Open Production" \
             --form-string "priority=0"
