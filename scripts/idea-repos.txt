@@ -1,0 +1,7 @@
+# Idea-Repos under Jobi0202 that inherit the foundation pipeline.
+# One `owner/repo` per line. Consumed by .github/workflows/fleet-drift-auditor.yml
+# to diff each repo's CI surface against this foundation. Lines starting with `#`
+# and blank lines are ignored. Add a repo here the moment it is bootstrapped from
+# the template so drift is caught from day one.
+Jobi0202/nutrition-coach
+Jobi0202/elternplan-studio
