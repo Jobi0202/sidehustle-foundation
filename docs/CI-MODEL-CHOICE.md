@@ -30,8 +30,13 @@ at install regardless of backend, and was temporarily made non-blocking. It now 
 the official **`openai/codex-action@v1`** in `sandbox: read-only`: the action runs
 `codex exec` against the PR diff with the rubric in `.claude/rules/review.md`, writes
 its verdict to `output-file`, which is posted as a PR comment. A format-drift guard
-requires a `VERDICT:` line, and the enforce step exits non-zero unless
-`VERDICT: PASS` — so **Gate 3 blocks again** and is back in `gates-green`'s `needs:`.
+requires a canonical first-line `VERDICT:` and a `SEVERITY_SUMMARY: CRITICAL=<n>
+ADVISORY=<m>` line. The enforce step applies the **severity gate** from
+`.claude/rules/review.md`: the workflow computes the CRITICAL count as
+`max(SEVERITY_SUMMARY count, number of [CRITICAL]-tagged finding lines)` and fails the
+gate iff it is `> 0` — so only CRITICAL findings (security / correctness /
+architecture-invariant breaks) block; ADVISORY findings are posted but never FAIL.
+**Gate 3 blocks again** and is in `gates-green`'s `needs:`.
 
 ## Rollback — Gate 2 to Anthropic (no code change beyond the env block)
 

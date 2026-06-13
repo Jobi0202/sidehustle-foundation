@@ -90,6 +90,11 @@ if in_gates 'steps\.codex\.outcome'; then
 else
   fail "Gate 3 does not verify codex-action succeeded — continue-on-error could mask a failure"
 fi
+if in_gates 'SEVERITY_SUMMARY' && in_gates 'CRITICAL finding'; then
+  pass "Gate 3 carries the severity gate (only CRITICAL findings block; advisories do not)"
+else
+  fail "Gate 3 missing the severity gate — non-critical findings would still block merge"
+fi
 if in_gates 'head -n1 codex-output'; then
   pass "Gate 3 pins the verdict to the canonical first line (head -n1)"
 else
