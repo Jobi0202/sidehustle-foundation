@@ -40,7 +40,7 @@ echo "verify-pipeline.sh — checking $ROOT"
 echo
 
 # --- 1. pr-gates.yml exists -------------------------------------------------
-echo "[1/8] Workflow file"
+echo "[1/9] Workflow file"
 if [ -f "$GATES" ]; then
   pass ".github/workflows/pr-gates.yml present"
 else
@@ -51,7 +51,7 @@ else
 fi
 
 # --- 2. Required jobs present ----------------------------------------------
-echo "[2/8] Required jobs"
+echo "[2/9] Required jobs"
 for job in $REQUIRED_JOBS; do
   if grep -qE "^[[:space:]]{2}${job}:" "$GATES"; then
     pass "job '$job' defined"
@@ -61,7 +61,7 @@ for job in $REQUIRED_JOBS; do
 done
 
 # --- 3. Gate 2 (claude-review) posts + enforces a verdict -------------------
-echo "[3/8] Gate 2 — Claude review verdict"
+echo "[3/9] Gate 2 — Claude review verdict"
 if in_gates 'gh pr comment .* -F'; then
   pass "Gate 2 posts the verdict back to the PR (gh pr comment -F)"
 else
@@ -74,11 +74,11 @@ else
 fi
 
 # --- 4. Gate 3 (codex-adversarial) posts + enforces ------------------------
-echo "[4/8] Gate 3 — Codex adversarial verdict"
-if in_gates 'codex:adversarial-review'; then
-  pass "Gate 3 invokes /codex:adversarial-review"
+echo "[4/9] Gate 3 — Codex adversarial verdict"
+if in_gates 'openai/codex-action'; then
+  pass "Gate 3 runs openai/codex-action (headless OpenAI)"
 else
-  fail "Gate 3 does not invoke the codex adversarial review"
+  fail "Gate 3 does not run openai/codex-action"
 fi
 if in_gates 'Enforce gate verdict'; then
   pass "Gate 3 has an 'Enforce' step"
@@ -87,7 +87,7 @@ else
 fi
 
 # --- 5. gates-green aggregates + merges -------------------------------------
-echo "[5/8] gates-green — aggregate + auto-merge"
+echo "[5/9] gates-green — aggregate + auto-merge"
 if in_gates 'alls-green'; then
   pass "gates-green uses the alls-green aggregate"
 else
@@ -100,7 +100,7 @@ else
 fi
 
 # --- 6. workflow-lint runs actionlint --------------------------------------
-echo "[6/8] workflow-lint — actionlint guard"
+echo "[6/9] workflow-lint — actionlint guard"
 if in_gates 'rhysd/actionlint'; then
   pass "workflow-lint shellchecks run-blocks via actionlint"
 else
@@ -108,7 +108,7 @@ else
 fi
 
 # --- 7. Model-choice documentation -----------------------------------------
-echo "[7/8] Model-choice docs"
+echo "[7/9] Model-choice docs"
 if [ -f "$MODEL_DOC" ]; then
   pass "docs/CI-MODEL-CHOICE.md present"
 else
@@ -117,11 +117,11 @@ fi
 
 # --- 8. DeepSeek routing + VERDICT format guard ----------------------------
 # Both landed in the DeepSeek/P0 reconcile PR — now part of the hard contract.
-echo "[8/8] DeepSeek routing + VERDICT guard"
+echo "[8/9] DeepSeek routing + VERDICT guard"
 if in_gates 'ANTHROPIC_BASE_URL' && in_gates 'ANTHROPIC_AUTH_TOKEN'; then
-  pass "Gate 2/3 routed via DeepSeek (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN)"
+  pass "Gate 2 routed via DeepSeek (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN)"
 else
-  fail "Gate 2/3 not on DeepSeek — expected ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN"
+  fail "Gate 2 not on DeepSeek — expected ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN"
 fi
 if in_gates 'Verify VERDICT format present'; then
   pass "Gate 2/3 have a VERDICT format-drift guard"
@@ -129,14 +129,12 @@ else
   fail "missing VERDICT format-drift guard in Gate 2/3"
 fi
 
-# --- Temporary state (WARN, tracked) ----------------------------------------
-# Gate 3 is non-blocking until Issue #11 (headless /plugin) is resolved. Flag it
-# so the skip is never invisible; the WARN clears once codex-adversarial is back
-# in gates-green's needs: list.
+# --- 9. Gate 3 is blocking (in gates-green needs) ---------------------------
+echo "[9/9] Gate 3 blocking"
 gg_needs="$(grep -A8 '^  gates-green:' "$GATES" | grep -E '^[[:space:]]*needs:' | head -1)"
 case "$gg_needs" in
-  *codex-adversarial*) : ;;
-  *) warn "Gate 3 (codex-adversarial) is NON-BLOCKING — TEMP-SKIP per Issue #11" ;;
+  *codex-adversarial*) pass "Gate 3 (codex-adversarial) is in gates-green needs: — blocking" ;;
+  *) fail "Gate 3 (codex-adversarial) NOT in gates-green needs: — auto-merge ignores Gate 3" ;;
 esac
 
 # --- Summary ----------------------------------------------------------------

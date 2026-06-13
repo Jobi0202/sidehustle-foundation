@@ -163,12 +163,6 @@ jobs:
           fi
           echo "Gate 2 PASSED."
 
-  # TEMP-SKIP (Issue #11): headless `claude /plugin` unavailable in `claude -p`, so this
-  # job fails at install regardless of backend. It is therefore intentionally NON-BLOCKING —
-  # absent from gates-green `needs:` (and thus the alls-green aggregation). The job body is
-  # unchanged: it still runs and posts its verdict, it just no longer blocks auto-merge.
-  # Restore to gates-green `needs:` and delete this note once Issue #11 redesigns the
-  # headless Codex invocation.
   codex-adversarial:
     name: Codex Adversarial Review (Gate 3)
     needs: [workflow-lint, claude-review]
@@ -178,103 +172,84 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+    # Pure OpenAI stack — no Anthropic/DeepSeek env here. Gate 3's cross-family
+    # anchor: Gate 2 reviews on DeepSeek, Gate 3 adversarially re-reviews on OpenAI.
     env:
-      # CLI-Wrapper-Backend (lädt Codex-Plugin). ROLLBACK-PFAD: ANTHROPIC_API_KEY-Zeile aktivieren,
-      # DeepSeek-Zeilen auskommentieren. OPENAI_API_KEY bleibt — eigentlicher Codex-Reviewer
-      # spricht OpenAI-Responses-API direkt (Cross-Family-Adversarial gegen DeepSeek-Gate-2,
-      # Architekt-Verdict 2026-05-17 B).
-      # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      ANTHROPIC_BASE_URL: https://api.deepseek.com/anthropic
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.DEEPSEEK_API_KEY }}
-      ANTHROPIC_MODEL: deepseek-v4-flash
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: deepseek-v4-flash
-      CLAUDE_CODE_SUBAGENT_MODEL: deepseek-v4-flash
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - name: Codex adversarial review (headless, openai/codex-action)
+        id: codex
+        continue-on-error: true
+        uses: openai/codex-action@v1
         with:
-          node-version: 20
-          cache: pnpm
-      - name: Install Claude Code CLI + Codex plugin (hard fail on install error)
-        run: |
-          set -e
-          npm install -g @anthropic-ai/claude-code@latest
-          claude /plugin marketplace add openai/codex-plugin-cc
-          claude /plugin install codex@openai
-          # Verify plugin is actually loaded — install can return 0 silently
-          if ! claude /plugin list 2>&1 | grep -qi 'codex'; then
-            echo "ERROR: codex plugin install reported success but is not in /plugin list"
-            claude /plugin list 2>&1 || true
-            exit 1
-          fi
-          echo "Codex plugin installed and verified."
-      - name: Run Codex adversarial review
-        id: adv
-        run: |
-          set +e
-          claude -p "/codex:adversarial-review on PR #${{ github.event.pull_request.number }} (apply @./.claude/rules/review.md, post verdict as PR comment, exit 1 on FAIL)" > /tmp/adversarial.log 2>&1
-          ec=$?
-          echo "exit_code=$ec" >> "$GITHUB_OUTPUT"
-          echo "--- Codex stdout (full) ---"
-          cat /tmp/adversarial.log
-          echo "--- exit code: $ec ---"
-          exit 0
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: read-only
+          output-file: codex-output.md
+          prompt: |
+            You are the Gate 3 adversarial reviewer for this pull request. Do NOT modify
+            any files — this is a read-only review.
+
+            Scope: review the diff between the PR base commit
+            ${{ github.event.pull_request.base.sha }} and HEAD. Run
+            `git diff ${{ github.event.pull_request.base.sha }} HEAD` to see every change.
+
+            Apply the rubric in ./.claude/rules/review.md — all six criteria (Issue Match,
+            Architecture, Test Sufficiency, Code Health, Boy Scout, Safety). Be adversarial:
+            actively hunt for reasons to FAIL. Per that rubric, a risk-path change missing
+            its required label fails Safety.
+
+            Your FINAL message must be the verdict in EXACTLY the canonical format defined in
+            ./.claude/rules/review.md. Its very first line must be one of
+            `VERDICT: PASS`, `VERDICT: FAIL`, or `VERDICT: PARTIAL`, followed by the CRITERIA,
+            BLOCKING FINDINGS, and NON-BLOCKING SUGGESTIONS sections. Output only the verdict.
+
       - name: Post Codex verdict to PR
         if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR=${{ github.event.pull_request.number }}
           {
-            echo "## Gate 3 — Codex Adversarial Review"
+            echo "## Gate 3 — Codex Adversarial Review (openai/codex-action)"
             echo ""
-            echo "Exit code: ${{ steps.adv.outputs.exit_code }}"
-            echo ""
-            echo '<details><summary>Full verdict (stdout)</summary>'
-            echo ''
-            echo '```'
-            cat /tmp/adversarial.log 2>/dev/null || echo 'No log captured.'
-            echo '```'
-            echo '</details>'
+            if [ -s codex-output.md ]; then
+              cat codex-output.md
+            else
+              echo "_No verdict produced — codex-action emitted no output (treated as FAIL)._"
+            fi
           } > /tmp/codex_verdict.md
           gh pr comment "$PR" -F /tmp/codex_verdict.md || true
 
       - name: Verify VERDICT format present (Gate 3 format-drift guard)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Codex streams its verdict to stdout (tee'd to adversarial.log) and
-          # also posts it as a PR comment. Accept a VERDICT: line from EITHER
-          # surface; fail only if neither has one (true format-drift).
+          # Accept a VERDICT: line from the codex output file OR a posted PR comment;
+          # fail only if neither has one (true format-drift / no verdict produced).
           PR=${{ github.event.pull_request.number }}
-          if grep -qE "^VERDICT:" /tmp/adversarial.log 2>/dev/null; then
-            echo "VERDICT line found in Codex stdout."
+          if grep -qE "^VERDICT:" codex-output.md 2>/dev/null; then
+            echo "VERDICT line found in codex output file."
           elif gh pr view "$PR" --repo "${{ github.repository }}" --json comments --jq '.comments[].body' | grep -qE "^VERDICT:"; then
             echo "VERDICT line found in a posted PR comment."
           else
-            echo "::error::Gate 3 — no VERDICT: line in Codex stdout or PR comments. Format-drift. Failing gate."
+            echo "::error::Gate 3 — no VERDICT: line in codex output or PR comments. Format-drift. Failing gate."
             exit 1
           fi
 
       - name: Enforce gate verdict
         run: |
-          if [ "${{ steps.adv.outputs.exit_code }}" != "0" ]; then
-            echo "Codex adversarial returned non-zero exit. Gate 3 FAILED."
+          # Gate 3 merges only on VERDICT: PASS. FAIL, PARTIAL, or a missing verdict -> exit 1.
+          verdict="$(grep -oE "^VERDICT:[[:space:]]*(PASS|FAIL|PARTIAL)" codex-output.md 2>/dev/null | head -1 | sed -E 's/^VERDICT:[[:space:]]*//')"
+          if [ "$verdict" = "PASS" ]; then
+            echo "Gate 3 PASSED (VERDICT: PASS)."
+          else
+            echo "::error::Gate 3 FAILED — VERDICT=${verdict:-MISSING} (only PASS merges)."
             exit 1
           fi
-          echo "Gate 3 PASSED."
 
   gates-green:
     name: Gates Green
     if: always() && github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'main'
-    # codex-adversarial intentionally omitted — Gate 3 is TEMP non-blocking (Issue #11).
-    # alls-green aggregates `toJSON(needs)`, so dropping it here also drops it from the gate.
-    needs: [workflow-lint, lint, typecheck, unit, e2e, claude-review]
+    needs: [workflow-lint, lint, typecheck, unit, e2e, claude-review, codex-adversarial]
     runs-on: ubuntu-latest
     permissions:
       contents: write
