@@ -1,0 +1,122 @@
+# Fleet Drift Auditor — archetype "auditor": FLAG ONLY, never auto-correct.
+#
+# Weekly (and on demand) it diffs every Idea-Repo's CI surface against this
+# foundation: the set of .github/workflows/*.yml files, and the job list inside
+# pr-gates.yml. Any divergence is written to the job summary as a Markdown report
+# and — if there is drift — pushed to Jo via Pushover. It never edits a downstream
+# repo; remediation is a human decision (open a rollout PR).
+#
+# Repo list: scripts/idea-repos.txt (one owner/repo per line).
+# Cross-repo reads use FLEET_AUDIT_TOKEN if present (PAT with read access to the
+# idea-repos), else fall back to GITHUB_TOKEN (works only for public repos; private
+# repos are flagged as "unreadable" rather than failing the run).
+name: Fleet Drift Auditor
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout foundation
+        uses: actions/checkout@v4
+
+      - name: Audit fleet against foundation
+        id: audit
+        env:
+          GH_TOKEN: ${{ secrets.FLEET_AUDIT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          # --- foundation reference ---
+          ref_wf="$(cd .github/workflows && ls -1 *.yml | sort)"
+          extract_jobs() {
+            awk '
+              /^jobs:/ {injobs=1; next}
+              injobs && /^[^[:space:]]/ {injobs=0}
+              injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {gsub(/[: ]/,""); print}
+            ' "$1" | sort
+          }
+          ref_jobs="$(extract_jobs .github/workflows/pr-gates.yml)"
+
+          repos_file="scripts/idea-repos.txt"
+          report="/tmp/drift-report.md"
+          drift="false"
+          short=""
+
+          {
+            echo "# Fleet Drift Report"
+            echo
+            echo "Reference: \`Jobi0202/sidehustle-foundation\` @ \`$(git rev-parse --short HEAD)\`"
+            echo
+          } > "$report"
+
+          while IFS= read -r repo; do
+            repo="$(echo "$repo" | sed 's/#.*//' | xargs)"
+            [ -n "$repo" ] || continue
+            echo "## \`$repo\`" >> "$report"
+
+            # Remote workflow filenames.
+            if ! remote_wf="$(gh api "repos/$repo/contents/.github/workflows" --jq '.[].name' 2>/tmp/gh.err | sort)"; then
+              drift="true"; short="$short $repo:unreadable"
+              echo "- ⚠️ **Unreadable** (\`$(cat /tmp/gh.err | head -1)\`). Needs FLEET_AUDIT_TOKEN with read access." >> "$report"
+              echo >> "$report"
+              continue
+            fi
+
+            wf_diff="$(diff <(echo "$ref_wf") <(echo "$remote_wf") || true)"
+            if [ -n "$wf_diff" ]; then
+              drift="true"; short="$short $repo:workflows"
+              echo "- ❌ **Workflow set differs** (\`<\` foundation-only, \`>\` repo-only):" >> "$report"
+              echo '```diff' >> "$report"; echo "$wf_diff" >> "$report"; echo '```' >> "$report"
+            else
+              echo "- ✅ Workflow set matches." >> "$report"
+            fi
+
+            # Remote pr-gates.yml job list.
+            if remote_gates="$(gh api "repos/$repo/contents/.github/workflows/pr-gates.yml" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null)"; then
+              echo "$remote_gates" > /tmp/remote-pr-gates.yml
+              remote_jobs="$(extract_jobs /tmp/remote-pr-gates.yml)"
+              job_diff="$(diff <(echo "$ref_jobs") <(echo "$remote_jobs") || true)"
+              if [ -n "$job_diff" ]; then
+                drift="true"; short="$short $repo:jobs"
+                echo "- ❌ **pr-gates job list differs:**" >> "$report"
+                echo '```diff' >> "$report"; echo "$job_diff" >> "$report"; echo '```' >> "$report"
+              else
+                echo "- ✅ pr-gates job list matches." >> "$report"
+              fi
+            else
+              drift="true"; short="$short $repo:no-pr-gates"
+              echo "- ❌ **pr-gates.yml missing or unreadable.**" >> "$report"
+            fi
+            echo >> "$report"
+          done < "$repos_file"
+
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          echo "drift=$drift" >> "$GITHUB_OUTPUT"
+          echo "short=${short:-all repos in sync}" >> "$GITHUB_OUTPUT"
+
+      - name: Pushover on drift
+        if: steps.audit.outputs.drift == 'true'
+        env:
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+        run: |
+          if [ -z "${PUSHOVER_APP_TOKEN:-}" ] || [ -z "${PUSHOVER_USER_KEY:-}" ]; then
+            echo "Pushover secrets not configured, skipping push."
+            exit 0
+          fi
+          curl -sS https://api.pushover.net/1/messages.json \
+            --form-string "token=${PUSHOVER_APP_TOKEN}" \
+            --form-string "user=${PUSHOVER_USER_KEY}" \
+            --form-string "title=Fleet drift detected" \
+            --form-string "message=CI drift vs foundation:${{ steps.audit.outputs.short }}. See workflow summary." \
+            --form-string "url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --form-string "url_title=Open drift report" \
+            --form-string "priority=0"
