@@ -32,8 +32,10 @@ read_up() {
 sql_up="$(printf '%s\n' "$sql_files" | read_up)"
 pay_up="$(printf '%s\n' "$payments_files" | read_up)"
 
-# Normalise SQL to ONE statement per line: strip line comments, join lines, split on ';'.
-sql_stmts="$(printf '%s\n' "$sql_up" | sed 's/--.*$//' | tr '\n' ' ' | tr ';' '\n')"
+# Normalise SQL to ONE statement per line: strip BOTH `/* block */` (perl, multi-line,
+# non-greedy) and `-- line` comments so a keyword/WHERE/DEFAULT can't be masked inside a
+# comment, then join lines and split on ';'.
+sql_stmts="$(printf '%s\n' "$sql_up" | perl -0pe 's{/\*.*?\*/}{ }gs' | sed 's/--.*$//' | tr '\n' ' ' | tr ';' '\n')"
 
 # True if any single statement matches the pattern.
 stmt() { printf '%s\n' "$sql_stmts" | grep -qE "$1"; }

@@ -79,8 +79,20 @@ describe('classify-tier.sh', () => {
     expect(classify({ 'src/payments/charge.test.ts': 'test("x", () => {})' })).toBe('tier-2')
   })
 
-  it('commented-out DROP is ignored -> tier-1', () => {
+  it('commented-out DROP (line comment) is ignored -> tier-1', () => {
     expect(classify({ 'migrations/009.sql': '-- DROP TABLE u;\nALTER TABLE u ADD COLUMN x text;' })).toBe('tier-1')
+  })
+
+  it('a WHERE hidden in a block comment cannot mask an unsafe DELETE -> tier-3', () => {
+    expect(classify({ 'migrations/010.sql': 'DELETE FROM users /* WHERE id = 1 */;' })).toBe('tier-3')
+  })
+
+  it('a DEFAULT hidden in a block comment cannot mask a NOT NULL add -> tier-2', () => {
+    expect(classify({ 'migrations/011.sql': 'ALTER TABLE u ADD COLUMN x int NOT NULL /* DEFAULT 0 */;' })).toBe('tier-2')
+  })
+
+  it('a benign block comment does not change the tier -> tier-1', () => {
+    expect(classify({ 'migrations/012.sql': '/* add nickname */\nALTER TABLE u ADD COLUMN nick text;' })).toBe('tier-1')
   })
 
   it('docs only -> tier-1', () => {
