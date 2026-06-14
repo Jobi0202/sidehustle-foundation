@@ -1,0 +1,42 @@
+# DB Deploy — applies committed Supabase migrations to Production on every push to main.
+#
+# Foundation template: there is no `supabase/migrations/` here, so this workflow never runs
+# in the foundation itself; each Idea-Repo inherits it. The risk gate lives at the PR
+# (auto-label-risk tiers a migration tier-2/tier-3 -> architect-gate / jo-approved), so by
+# the time a migration reaches main it is already approved. db-deploy therefore applies
+# UNCONDITIONALLY — no second gate here, and NO migration-repair (repair is a one-time
+# bootstrap op, see scripts/bootstrap-supabase.sh).
+name: DB Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+
+# Never run two deploys at once — migrations must apply in committed (timestamp) order.
+concurrency: db-deploy
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Push migrations to Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "${SUPABASE_PROJECT_ID:-}" ]; then
+            echo "::error::SUPABASE_PROJECT_ID is not set in this repo — run scripts/bootstrap-supabase.sh and set the SUPABASE_* secrets before the first migration."
+            exit 1
+          fi
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase db push
