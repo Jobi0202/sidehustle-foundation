@@ -3,9 +3,13 @@ import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-// regression: issue-21: risk is auto-tiered (tier-1/2/3), tier-2 is gated by the
-// architect-gate, and tier-3 is blocked in gates-green without jo-approved.
-describe('regression: issue-21: 3-tier risk classifier + architect-gate', () => {
+// regression: issue-21 (+ issue-29 relocation): risk is auto-tiered (tier-1/2/3) by the
+// per-repo auto-label-risk.yml via the shared classify-tier.sh. The architect-gate +
+// tier-3-schranke ENFORCEMENT moved into the central reusable workflow (Jobi0202/
+// sidehustle-ci) with Schritt 2, so it is asserted there (and via reusable-caller.regression
+// for delegation), not against the local thin-caller pr-gates.yml. What stays local — the
+// risk classifier wiring and the labeled/unlabeled re-trigger — is asserted here.
+describe('regression: issue-21: 3-tier risk classifier (local) + delegation', () => {
   const root = process.cwd()
   const risk = readFileSync(resolve(root, '.github/workflows/auto-label-risk.yml'), 'utf8')
   const gates = readFileSync(resolve(root, '.github/workflows/pr-gates.yml'), 'utf8')
@@ -15,17 +19,10 @@ describe('regression: issue-21: 3-tier risk classifier + architect-gate', () => 
     for (const tier of ['tier-1', 'tier-2', 'tier-3']) expect(risk).toContain(tier)
   })
 
-  it('has an architect-gate job wired into gates-green needs', () => {
-    expect(gates).toMatch(/^ {2}architect-gate:/m)
-    expect(gates).toMatch(/needs:\s*\[[^\]]*architect-gate[^\]]*\]/)
-  })
-
-  it('recomputes the tier from the diff (not the mutable label) and blocks tier-3 without jo-approved', () => {
-    expect(gates).toMatch(/jo-approved/)
-    // Both the architect-gate and gates-green tier-3 schranke must recompute via the
-    // shared classifier rather than trusting a relabel.
-    expect(gates).toMatch(/classify-tier\.sh/)
-    expect(gates).toMatch(/never the mutable label/i)
+  it('delegates the gate pipeline (incl. architect-gate + tier-3 schranke) to the central reusable workflow', () => {
+    expect(gates).toMatch(
+      /uses:\s*Jobi0202\/sidehustle-ci\/\.github\/workflows\/pr-gates-reusable\.yml@main/,
+    )
   })
 
   it('re-runs the gates on labeled/unlabeled so adding jo-approved clears the tier-3 block', () => {

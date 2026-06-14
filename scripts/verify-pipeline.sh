@@ -3,29 +3,33 @@
 # verify-pipeline.sh — machine check that an Idea-Repo's CI surface matches the
 # sidehustle-foundation pipeline contract. Exit non-zero on drift.
 #
+# Since Schritt 2 of the reusable-inheritance rollout, the gate PIPELINE lives ONCE in the
+# public repo Jobi0202/sidehustle-ci (.github/workflows/pr-gates-reusable.yml, on:
+# workflow_call). Every repo's own pr-gates.yml is a THIN CALLER of it. So this script no
+# longer greps gate job bodies locally — it verifies (a) correct DELEGATION to the central
+# reusable workflow and (b) the still-local, per-repo surface (auto-label-risk, db-deploy).
+# The deep gate contract (verdict enforcement, model pin, severity gate, ...) is owned and
+# pinned centrally in sidehustle-ci.
+#
 # Run it twice:
 #   1. At bootstrap — right after cloning the template, before the first PR.
-#   2. As a CI job in every Idea-Repo — wire it into pr-gates (or a nightly) so
-#      drift from the foundation contract fails loudly instead of rotting.
-#
-# This replaces the older scripts/verify-deepseek-switch.sh (single verifier for
-# the whole pipeline, not just the model switch). If that file ever reappears in
-# a downstream repo, soft-delete it into scripts/_archive/.
+#   2. As a CI job in every Idea-Repo (or a nightly) so drift fails loudly instead of rotting.
 #
 # Two severities:
 #   FAIL  — drift from the foundation contract. Exits 1.
-#   WARN  — a known, tracked temporary state (e.g. a gate intentionally made
-#           non-blocking under an open Issue). Informational only; does NOT affect
-#           the exit code. Each WARN names the Issue that clears it.
+#   WARN  — a known, tracked manual-confirm state (set outside the repo at rollout).
+#           Informational only; does NOT affect the exit code.
 #
 set -uo pipefail
 
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || echo .)"
 GATES="$ROOT/.github/workflows/pr-gates.yml"
 DB_DEPLOY="$ROOT/.github/workflows/db-deploy.yml"
+RISK="$ROOT/.github/workflows/auto-label-risk.yml"
 MODEL_DOC="$ROOT/docs/CI-MODEL-CHOICE.md"
 
-REQUIRED_JOBS="workflow-lint lint typecheck unit e2e claude-review codex-adversarial architect-gate gates-green"
+# The reusable workflow every caller must delegate to (path; pin checked separately).
+REUSABLE_PATH='Jobi0202/sidehustle-ci/.github/workflows/pr-gates-reusable.yml'
 
 fail_count=0
 warn_count=0
@@ -34,16 +38,14 @@ pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fail_count=$((fail_count + 1)); }
 warn() { printf '  \033[33mWARN\033[0m  %s\n' "$1"; warn_count=$((warn_count + 1)); }
 
-# grep helper scoped to the gates file; returns 0 on match.
 in_gates() { grep -qE "$1" "$GATES"; }
-# grep helper scoped to the db-deploy file; returns 0 on match.
 in_db_deploy() { grep -qE "$1" "$DB_DEPLOY"; }
 
 echo "verify-pipeline.sh — checking $ROOT"
 echo
 
 # --- 1. pr-gates.yml exists -------------------------------------------------
-echo "[1/11] Workflow file"
+echo "[1/5] Workflow file"
 if [ -f "$GATES" ]; then
   pass ".github/workflows/pr-gates.yml present"
 else
@@ -53,138 +55,57 @@ else
   exit 1
 fi
 
-# --- 2. Required jobs present ----------------------------------------------
-echo "[2/11] Required jobs"
-for job in $REQUIRED_JOBS; do
-  if grep -qE "^[[:space:]]{2}${job}:" "$GATES"; then
-    pass "job '$job' defined"
+# --- 2. Thin-caller delegation to the central reusable workflow -------------
+echo "[2/5] Thin-caller delegation (single source: sidehustle-ci)"
+if grep -qE "uses:[[:space:]]*${REUSABLE_PATH}@" "$GATES"; then
+  pass "pr-gates.yml delegates to ${REUSABLE_PATH}"
+  if grep -qE "uses:[[:space:]]*${REUSABLE_PATH}@(main|v[0-9]+)" "$GATES"; then
+    pass "delegation is pinned (@main or @v<N>) so central changes propagate"
   else
-    fail "job '$job' missing from pr-gates.yml"
+    fail "reusable workflow reference is not pinned to @main or a @v<N> tag"
   fi
-done
-
-# --- 3. Gate 2 (claude-review) posts + enforces a verdict -------------------
-echo "[3/11] Gate 2 — Claude review verdict"
-if in_gates 'gh pr comment .* -F'; then
-  pass "Gate 2 posts the verdict back to the PR (gh pr comment -F)"
+  if in_gates 'secrets:[[:space:]]*inherit'; then
+    pass "secrets: inherit (repo secrets passed to the reusable workflow)"
+  else
+    fail "missing 'secrets: inherit' — the reusable workflow gets no secrets"
+  fi
 else
-  fail "Gate 2 does not post a verdict comment — reviewer output is invisible"
+  fail "pr-gates.yml is NOT a thin caller of ${REUSABLE_PATH} — un-migrated drift (run Schritt 2/3)"
 fi
-if in_gates 'Enforce Gate 2 verdict'; then
-  pass "Gate 2 has an 'Enforce' step"
+if grep -qE '^name:[[:space:]]*PR Gates[[:space:]]*$' "$GATES"; then
+  pass "workflow name is 'PR Gates' (notify-jo workflow_run trigger matches)"
 else
-  fail "Gate 2 has no enforce step — a failing review cannot block merge"
-fi
-if in_gates 'only VERDICT: PASS passes'; then
-  pass "Gate 2 enforce parses the VERDICT content (not just the CLI exit code)"
-else
-  fail "Gate 2 enforce does not parse VERDICT content — a FAIL verdict with exit 0 would pass"
+  fail "workflow name is not 'PR Gates' — notify-jo's workflow_run trigger will not fire"
 fi
 
-# --- 4. Gate 3 (codex-adversarial) posts + enforces ------------------------
-echo "[4/11] Gate 3 — Codex adversarial verdict"
-if in_gates 'openai/codex-action'; then
-  pass "Gate 3 runs openai/codex-action (headless OpenAI)"
+# --- 3. PR trigger + concurrency (caller owns the trigger) ------------------
+echo "[3/5] Trigger + concurrency"
+if in_gates 'pull_request:' && in_gates 'types:[[:space:]]*\[[^]]*labeled[^]]*unlabeled[^]]*\]'; then
+  pass "on: pull_request with labeled/unlabeled (jo-approved re-runs the gates)"
 else
-  fail "Gate 3 does not run openai/codex-action"
+  fail "pr-gates.yml does not trigger on pull_request with labeled/unlabeled types"
 fi
-if in_gates 'model:[[:space:]]*gpt-5\.3-codex' && in_gates 'effort:[[:space:]]*medium'; then
-  pass "Gate 3 pins the codex model (gpt-5.3-codex) + effort (medium) for predictable cost"
+if in_gates 'group:[[:space:]]*pr-gates-' && in_gates 'cancel-in-progress:[[:space:]]*true'; then
+  pass "per-PR concurrency group with cancel-in-progress (stale runs cancelled)"
 else
-  fail "Gate 3 codex model/effort not pinned — cost drifts with the action default"
-fi
-if in_gates 'Enforce gate verdict'; then
-  pass "Gate 3 has an 'Enforce' step"
-else
-  fail "Gate 3 has no enforce step"
-fi
-if in_gates 'steps\.codex\.outcome'; then
-  pass "Gate 3 enforce checks the codex-action outcome (no continue-on-error masking)"
-else
-  fail "Gate 3 does not verify codex-action succeeded — continue-on-error could mask a failure"
-fi
-if in_gates 'SEVERITY_SUMMARY' && in_gates 'CRITICAL finding'; then
-  pass "Gate 3 carries the severity gate (only CRITICAL findings block; advisories do not)"
-else
-  fail "Gate 3 missing the severity gate — non-critical findings would still block merge"
-fi
-if in_gates 'head -n1 codex-output'; then
-  pass "Gate 3 pins the verdict to the canonical first line (head -n1)"
-else
-  fail "Gate 3 does not pin the verdict to line 1 — preamble/duplicate VERDICT could be honored"
+  fail "missing per-PR concurrency group / cancel-in-progress"
 fi
 
-# --- 5. gates-green aggregates + merges -------------------------------------
-echo "[5/11] gates-green — aggregate + auto-merge"
-if in_gates 'alls-green'; then
-  pass "gates-green uses the alls-green aggregate"
+# --- 4. Risk tiering (still per-repo: auto-label-risk.yml) ------------------
+echo "[4/5] Risk tiering (local)"
+if [ -f "$RISK" ] && grep -q 'tier-1' "$RISK" && grep -q 'tier-2' "$RISK" && grep -q 'tier-3' "$RISK"; then
+  pass "auto-label-risk classifies into tier-1/tier-2/tier-3 (via classify-tier.sh)"
 else
-  fail "gates-green missing alls-green aggregate"
+  fail "auto-label-risk.yml does not emit the three tier labels"
 fi
-if in_gates 'gh pr merge .* --auto --squash'; then
-  pass "gates-green enables auto-merge (--auto --squash) only after green"
-else
-  fail "gates-green must use 'gh pr merge --auto --squash' — an immediate merge deadlocks on the Gates Green required check"
-fi
-
-# --- 6. workflow-lint runs actionlint --------------------------------------
-echo "[6/11] workflow-lint — actionlint guard"
-if in_gates 'rhysd/actionlint'; then
-  pass "workflow-lint shellchecks run-blocks via actionlint"
-else
-  fail "workflow-lint missing actionlint — shell syntax bugs ship unguarded"
-fi
-
-# --- 7. Model-choice documentation -----------------------------------------
-echo "[7/11] Model-choice docs"
 if [ -f "$MODEL_DOC" ]; then
   pass "docs/CI-MODEL-CHOICE.md present"
 else
-  fail "docs/CI-MODEL-CHOICE.md missing — gate model choice is undocumented"
+  warn "docs/CI-MODEL-CHOICE.md absent — model choice is now documented centrally in sidehustle-ci"
 fi
 
-# --- 8. DeepSeek routing + VERDICT format guard ----------------------------
-# Both landed in the DeepSeek/P0 reconcile PR — now part of the hard contract.
-echo "[8/11] DeepSeek routing + VERDICT guard"
-if in_gates 'ANTHROPIC_BASE_URL' && in_gates 'ANTHROPIC_AUTH_TOKEN'; then
-  pass "Gate 2 routed via DeepSeek (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN)"
-else
-  fail "Gate 2 not on DeepSeek — expected ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN"
-fi
-if in_gates 'Verify VERDICT format present'; then
-  pass "Gate 2/3 have a VERDICT format-drift guard"
-else
-  fail "missing VERDICT format-drift guard in Gate 2/3"
-fi
-
-# --- 9. Gate 3 is blocking (in gates-green needs) ---------------------------
-echo "[9/11] Gate 3 blocking"
-gg_needs="$(grep -A8 '^  gates-green:' "$GATES" | grep -E '^[[:space:]]*needs:' | head -1)"
-case "$gg_needs" in
-  *codex-adversarial*) pass "Gate 3 (codex-adversarial) is in gates-green needs: — blocking" ;;
-  *) fail "Gate 3 (codex-adversarial) NOT in gates-green needs: — auto-merge ignores Gate 3" ;;
-esac
-
-# --- 10. Risk tiering: classifier + architect-gate + tier-3 schranke ---------
-echo "[10/11] Risk tiering"
-RISK="$ROOT/.github/workflows/auto-label-risk.yml"
-if [ -f "$RISK" ] && grep -q 'tier-1' "$RISK" && grep -q 'tier-2' "$RISK" && grep -q 'tier-3' "$RISK"; then
-  pass "auto-label-risk classifies into tier-1/tier-2/tier-3"
-else
-  fail "auto-label-risk does not emit the three tier labels"
-fi
-case "$gg_needs" in
-  *architect-gate*) pass "architect-gate is in gates-green needs: — tier-2 is blocking" ;;
-  *) fail "architect-gate NOT in gates-green needs: — tier-2 changes would not be gated" ;;
-esac
-if in_gates 'tier-3' && in_gates 'jo-approved'; then
-  pass "gates-green has the tier-3 + jo-approved schranke"
-else
-  fail "gates-green missing the tier-3 schranke"
-fi
-
-# --- 11. db-deploy template: 0-touch migration deploy on merge to main -------
-echo "[11/11] db-deploy — 0-touch migration deploy"
+# --- 5. db-deploy template: 0-touch migration deploy on merge to main -------
+echo "[5/5] db-deploy — 0-touch migration deploy"
 if [ -f "$DB_DEPLOY" ]; then
   pass ".github/workflows/db-deploy.yml present"
   if in_db_deploy '^[[:space:]]*branches:[[:space:]]*\[main\]' || in_db_deploy '^[[:space:]]*-[[:space:]]*main[[:space:]]*$'; then
@@ -202,8 +123,6 @@ if [ -f "$DB_DEPLOY" ]; then
   else
     fail "db-deploy does not run 'supabase db push' — nothing gets applied"
   fi
-  # Migration-repair belongs in bootstrap only — it must NOT live in db-deploy (it would
-  # mask real drift on every deploy).
   if in_db_deploy 'migration repair'; then
     fail "db-deploy contains 'migration repair' — repair is a one-time bootstrap op, not a per-deploy step"
   else
@@ -213,7 +132,6 @@ else
   fail ".github/workflows/db-deploy.yml missing — no 0-touch DB deploy"
 fi
 
-# Bootstrap scripts present (run once per repo, outside CI).
 for s in bootstrap-supabase.sh bootstrap-vercel.sh; do
   if [ -f "$ROOT/scripts/$s" ]; then
     pass "scripts/$s present"
@@ -222,11 +140,10 @@ for s in bootstrap-supabase.sh bootstrap-vercel.sh; do
   fi
 done
 
-# SUPABASE_* secrets + Vercel Production Branch = main are set OUTSIDE the repo at rollout
-# time, so they are MANUAL-CONFIRM warnings here, not hard fails (a fresh template clone
-# legitimately has neither yet).
+# Set OUTSIDE the repo at rollout time → MANUAL-CONFIRM warnings, not hard fails.
 warn "MANUAL-CONFIRM: SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID set in repo secrets (needed before the first migration merges)"
 warn "MANUAL-CONFIRM: Vercel Production Branch = main (so green main-merges auto-promote to prod)"
+warn "MANUAL-CONFIRM: DEEPSEEK_API_KEY / OPENAI_API_KEY / CLAUDE_CODE_OAUTH_TOKEN set in repo secrets (the reusable workflow reads them via secrets: inherit)"
 
 # --- Summary ----------------------------------------------------------------
 echo

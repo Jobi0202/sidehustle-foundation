@@ -22,7 +22,7 @@ PM Project (Cowork)         ->   Master Agent (Cowork)        ->   Builder (Clau
 - CLAUDE.md (operator entrypoint)
 - .claude/rules/* (5 rule files)
 - .claude/agents/reviewer.md, .claude/commands/review-pr.md
-- .github/workflows/pr-gates.yml, enable-auto-merge.yml, notify-jo.yml
+- .github/workflows/pr-gates.yml (thin caller of Jobi0202/sidehustle-ci reusable pipeline), notify-jo.yml, db-deploy.yml, auto-label-risk.yml, fleet-drift-auditor.yml
 - .github/ISSUE_TEMPLATE/* (feature, bug, spike)
 - scripts/* (worktree, port-from-branch, cleanup) PowerShell + Bash
 - .env.template (schema for the central secrets file)
