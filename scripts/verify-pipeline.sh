@@ -85,6 +85,11 @@ if in_gates 'openai/codex-action'; then
 else
   fail "Gate 3 does not run openai/codex-action"
 fi
+if in_gates 'model:[[:space:]]*gpt-5\.3-codex' && in_gates 'effort:[[:space:]]*medium'; then
+  pass "Gate 3 pins the codex model (gpt-5.3-codex) + effort (medium) for predictable cost"
+else
+  fail "Gate 3 codex model/effort not pinned — cost drifts with the action default"
+fi
 if in_gates 'Enforce gate verdict'; then
   pass "Gate 3 has an 'Enforce' step"
 else
