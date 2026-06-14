@@ -25,4 +25,8 @@ describe('regression: issue-21: 3-tier risk classifier + architect-gate', () => 
     expect(gates).toMatch(/jo-approved/)
     expect(gates).toMatch(/failing closed/i)
   })
+
+  it('re-runs the gates on labeled/unlabeled so adding jo-approved clears the tier-3 block', () => {
+    expect(gates).toMatch(/types:\s*\[[^\]]*\blabeled\b[^\]]*\bunlabeled\b[^\]]*\]/)
+  })
 })
