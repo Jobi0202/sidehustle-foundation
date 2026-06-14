@@ -10,7 +10,8 @@ describe('regression: issue-21: 3-tier risk classifier + architect-gate', () => 
   const risk = readFileSync(resolve(root, '.github/workflows/auto-label-risk.yml'), 'utf8')
   const gates = readFileSync(resolve(root, '.github/workflows/pr-gates.yml'), 'utf8')
 
-  it('classifies into tier-1 / tier-2 / tier-3', () => {
+  it('classifies via the shared, tested classify-tier.sh (behaviour covered in tier-classifier.test.ts)', () => {
+    expect(risk).toMatch(/classify-tier\.sh/)
     for (const tier of ['tier-1', 'tier-2', 'tier-3']) expect(risk).toContain(tier)
   })
 
@@ -19,21 +20,9 @@ describe('regression: issue-21: 3-tier risk classifier + architect-gate', () => 
     expect(gates).toMatch(/needs:\s*\[[^\]]*architect-gate[^\]]*\]/)
   })
 
-  it('blocks tier-3 without jo-approved in gates-green', () => {
+  it('blocks tier-3 without jo-approved and fails CLOSED on a missing label', () => {
     expect(gates).toMatch(/tier-3/)
     expect(gates).toMatch(/jo-approved/)
-  })
-
-  it('gates-green fails CLOSED when no tier label is present', () => {
     expect(gates).toMatch(/failing closed/i)
-  })
-
-  it('detects payments money movement from changed file content, not only SQL', () => {
-    expect(risk).toMatch(/payments_files/)
-    expect(risk).toMatch(/pay_up/)
-  })
-
-  it('evaluates DELETE per statement so a safe DELETE cannot mask a dangerous one', () => {
-    expect(risk).toMatch(/PER STATEMENT/)
   })
 })

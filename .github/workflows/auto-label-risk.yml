@@ -3,9 +3,10 @@
 #   tier-1 — routine / additive: the normal gate strecke decides.
 #   tier-2 — technically risky (auth/rls/payments code, or destructive/locking DDL):
 #            the `architect-gate` job (Anthropic Opus) must pass. No Jo ping.
-#   tier-3 — business/legal risk (money movement, DROP TABLE / DELETE without WHERE,
-#            consent / GDPR Art-9): blocked in gates-green unless `jo-approved`, Jo pinged.
-# SQL heuristics are line-based and deliberately conservative ("im Zweifel tier-3").
+#   tier-3 — business/legal risk (money movement, DROP TABLE / TRUNCATE / DELETE without
+#            WHERE, consent / GDPR Art-9): blocked in gates-green unless `jo-approved`.
+# All classification lives in scripts/classify-tier.sh (per-statement, conservative) so it
+# is unit-tested (src/ci/tier-classifier.test.ts) and shared, not duplicated in YAML.
 name: Auto-label risk
 
 on:
@@ -39,57 +40,7 @@ jobs:
           head='${{ github.event.pull_request.head.sha }}'
           files="$(git diff --name-only "$base" "$head")"
           echo "Changed files:"; printf '%s\n' "$files"
-
-          sql_files="$(printf '%s\n' "$files" | grep -E '(^|/)migrations/.*\.sql$' || true)"
-          sql_up=""
-          if [ -n "$sql_files" ]; then
-            sql_up="$(printf '%s\n' "$sql_files" | while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && cat "$f"; done | tr '[:lower:]' '[:upper:]')"
-          fi
-
-          # Content of changed files under payments/ — money movement often lives in CODE
-          # (charge/refund/payout), which has no SQL, so we must inspect the files themselves.
-          payments_files="$(printf '%s\n' "$files" | grep -E '(^|/)payments/' || true)"
-          pay_up=""
-          if [ -n "$payments_files" ]; then
-            pay_up="$(printf '%s\n' "$payments_files" | while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && cat "$f"; done | tr '[:lower:]' '[:upper:]')"
-          fi
-
-          tier="tier-1"
-
-          # ---- tier-2: structural risk paths ----
-          if printf '%s\n' "$files" | grep -qE '(^|/)(auth|rls|payments)/'; then
-            tier="tier-2"; echo "tier-2: auth/rls/payments path"
-          fi
-          # ---- tier-2: destructive / locking DDL in a migration ----
-          if printf '%s' "$sql_up" | grep -qE '\bDROP\b|\bTRUNCATE\b|\bDELETE\b|\bRENAME\b|ALTER[[:space:]].*[[:space:]]TYPE\b|ADD[[:space:]]+CONSTRAINT[^;]*UNIQUE'; then
-            tier="tier-2"; echo "tier-2: destructive/locking DDL"
-          fi
-          # ADD COLUMN ... NOT NULL without DEFAULT locks a populated table.
-          if printf '%s' "$sql_up" | grep -qE 'ADD[[:space:]]+COLUMN[^;]*NOT[[:space:]]+NULL' \
-             && ! printf '%s' "$sql_up" | grep -qE 'ADD[[:space:]]+COLUMN[^;]*NOT[[:space:]]+NULL[^;]*DEFAULT'; then
-            tier="tier-2"; echo "tier-2: ADD COLUMN NOT NULL without DEFAULT"
-          fi
-
-          # ---- tier-3 overrides (conservative) ----
-          if printf '%s' "$sql_up" | grep -qE 'DROP[[:space:]]+TABLE'; then
-            tier="tier-3"; echo "tier-3: DROP TABLE"
-          fi
-          # DELETE without WHERE — evaluated PER STATEMENT (join lines, split on ';') so a
-          # safe `DELETE ... WHERE` cannot mask a dangerous `DELETE` in the same migration.
-          if printf '%s' "$sql_up" | tr '\n' ' ' | tr ';' '\n' \
-             | grep -E '\bDELETE[[:space:]]+FROM\b' | grep -qvE '\bWHERE\b'; then
-            tier="tier-3"; echo "tier-3: DELETE without WHERE"
-          fi
-          if printf '%s\n' "$files" | grep -qE '(^|/)(consent|gdpr|art9)/'; then
-            tier="tier-3"; echo "tier-3: consent/GDPR/Art-9 path"
-          fi
-          # Payments money movement: inspect the changed payments files' content (code or
-          # SQL), not just migrations — a charge/refund/payout in code has no SQL.
-          if [ -n "$payments_files" ] \
-             && printf '%s' "$sql_up$pay_up" | grep -qE 'TRANSFER|CHARGE|PAYOUT|REFUND|BALANCE|AMOUNT'; then
-            tier="tier-3"; echo "tier-3: payments money movement"
-          fi
-
+          tier="$(printf '%s\n' "$files" | bash scripts/classify-tier.sh)"
           echo "Resolved tier: $tier"
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
 
