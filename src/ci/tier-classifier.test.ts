@@ -98,4 +98,17 @@ describe('classify-tier.sh', () => {
   it('docs only -> tier-1', () => {
     expect(classify({ 'README.md': '# hi' })).toBe('tier-1')
   })
+
+  // Fail-safe allow-list: any non-additive or unrecognised statement is at least tier-2,
+  // so an unsafe SQL form can never slip to tier-1 — no need to enumerate every form.
+  it.each([
+    ['CREATE UNIQUE INDEX', 'CREATE UNIQUE INDEX idx ON u(email);'],
+    ['unnamed ADD UNIQUE', 'ALTER TABLE u ADD UNIQUE (email);'],
+    ['ADD CONSTRAINT UNIQUE', 'ALTER TABLE u ADD CONSTRAINT uq UNIQUE (email);'],
+    ['ALTER COLUMN TYPE', 'ALTER TABLE u ALTER COLUMN x TYPE bigint;'],
+    ['RENAME COLUMN', 'ALTER TABLE u RENAME COLUMN a TO b;'],
+    ['a future/unknown DDL form', 'CLUSTER u USING idx;'],
+  ])('non-additive migration (%s) is at least tier-2', (_name, sql) => {
+    expect(classify({ 'migrations/x.sql': sql })).toBe('tier-2')
+  })
 })

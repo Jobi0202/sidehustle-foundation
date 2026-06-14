@@ -4,16 +4,16 @@
 # and print the risk tier: tier-1 | tier-2 | tier-3.
 #
 # Used by .github/workflows/auto-label-risk.yml and unit-tested by
-# src/ci/tier-classifier.test.ts. Every SQL check is evaluated PER STATEMENT (split
-# on ';') so a safe statement can never mask a dangerous one in the same migration.
-# Classification is conservative: when in doubt, the higher tier.
+# src/ci/tier-classifier.test.ts.
 #
-#   tier-2 = auth/rls/payments path, or destructive/locking DDL
-#            (DROP / TRUNCATE / DELETE / RENAME / ALTER..TYPE /
-#             ADD COLUMN..NOT NULL without DEFAULT / ADD CONSTRAINT..UNIQUE)
-#   tier-3 = DROP TABLE, TRUNCATE, DELETE without WHERE, payments money movement,
-#            or a consent/GDPR/Art-9 path
-#   tier-1 = everything else
+# FAIL-SAFE ALLOW-LIST model for migrations: a migration is tier-1 ONLY if EVERY one of
+# its statements is provably safe-additive (and an ADD COLUMN is nullable or DEFAULTed).
+# Any statement the allow-list does not recognise -> tier-2. So an unhandled or unsafe SQL
+# form can never slip to tier-1 — at worst it over-tiers to tier-2 (architect-gate). This
+# beats a deny-list, which is inherently incomplete (every new SQL form is a hole).
+# tier-3 is the well-defined data-loss/legal set; payments impl files are money-adjacent.
+# Every SQL check is per statement (split on ';') with block + line comments stripped, so a
+# safe statement (or a comment) cannot mask a dangerous one. Conservative: in doubt, higher.
 #
 set -uo pipefail
 
@@ -33,50 +33,63 @@ sql_up="$(printf '%s\n' "$sql_files" | read_up)"
 pay_up="$(printf '%s\n' "$payments_files" | read_up)"
 
 # Normalise SQL to ONE statement per line: strip BOTH `/* block */` (perl, multi-line,
-# non-greedy) and `-- line` comments so a keyword/WHERE/DEFAULT can't be masked inside a
-# comment, then join lines and split on ';'.
+# non-greedy) and `-- line` comments so nothing can be masked inside a comment, then
+# join lines and split on ';'.
 sql_stmts="$(printf '%s\n' "$sql_up" | perl -0pe 's{/\*.*?\*/}{ }gs' | sed 's/--.*$//' | tr '\n' ' ' | tr ';' '\n')"
 
 # True if any single statement matches the pattern.
 stmt() { printf '%s\n' "$sql_stmts" | grep -qE "$1"; }
 
-tier="tier-1"
+t2=0
+t3=0
 
-# ---- tier-2: structural risk paths ----
-printf '%s\n' "$files" | grep -qE '(^|/)(auth|rls|payments)/' && tier="tier-2"
+# ---- paths ----
+printf '%s\n' "$files" | grep -qE '(^|/)(auth|rls)/'        && t2=1
+printf '%s\n' "$files" | grep -qE '(^|/)(consent|gdpr|art9)/' && t3=1
 
-# ---- tier-2: destructive / locking DDL (per statement) ----
-stmt '\bDROP\b'                            && tier="tier-2"
-stmt '\bTRUNCATE\b'                         && tier="tier-2"
-stmt '\bDELETE[[:space:]]+FROM\b'          && tier="tier-2"
-stmt '\bRENAME\b'                          && tier="tier-2"
-stmt 'ALTER[[:space:]].*[[:space:]]TYPE\b' && tier="tier-2"
-stmt 'ADD[[:space:]]+CONSTRAINT[^,]*UNIQUE' && tier="tier-2"
-# ADD COLUMN ... NOT NULL without DEFAULT — per statement: the SAME statement that
-# adds a NOT NULL column must not also carry a DEFAULT.
-if printf '%s\n' "$sql_stmts" | grep -E 'ADD[[:space:]]+COLUMN' | grep -E 'NOT[[:space:]]+NULL' | grep -qvE 'DEFAULT'; then
-  tier="tier-2"
-fi
+# ---- SQL allow-list: a migration statement is safe-additive only if it matches SAFE
+#      (and an ADD COLUMN is not NOT-NULL-without-DEFAULT). Anything else -> tier-2. ----
+SAFE='^(CREATE TABLE|CREATE (CONCURRENTLY )?INDEX|CREATE SCHEMA|CREATE EXTENSION|CREATE TYPE|CREATE SEQUENCE|CREATE MATERIALIZED VIEW|CREATE (OR REPLACE )?(FUNCTION|TRIGGER|VIEW)|COMMENT ON|INSERT INTO|GRANT|REVOKE|SET |SELECT |BEGIN|COMMIT|ALTER SEQUENCE|ALTER TYPE [^,]* ADD VALUE|ALTER TABLE [^,]* ADD COLUMN)'
+while IFS= read -r s; do
+  st="$(printf '%s' "$s" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  [ -z "$st" ] && continue
+  # ADD COLUMN ... NOT NULL without DEFAULT locks a populated table — unsafe.
+  if printf '%s' "$st" | grep -qE '\bADD[[:space:]]+COLUMN\b' \
+     && printf '%s' "$st" | grep -qE '\bNOT[[:space:]]+NULL\b' \
+     && ! printf '%s' "$st" | grep -qE '\bDEFAULT\b'; then
+    t2=1
+    continue
+  fi
+  printf '%s' "$st" | grep -qE "$SAFE" || t2=1
+done <<EOF
+$sql_stmts
+EOF
 
-# ---- tier-3 overrides (conservative, per statement) ----
-stmt 'DROP[[:space:]]+TABLE' && tier="tier-3"
-stmt '\bTRUNCATE\b'          && tier="tier-3"   # unconditional data loss
+# ---- tier-3 (data loss / legal), conservative per statement ----
+stmt 'DROP[[:space:]]+TABLE' && t3=1
+stmt '\bTRUNCATE\b'          && t3=1   # unconditional data loss
 # DELETE without WHERE — any single DELETE statement lacking a WHERE.
 if printf '%s\n' "$sql_stmts" | grep -E '\bDELETE[[:space:]]+FROM\b' | grep -qvE '\bWHERE\b'; then
-  tier="tier-3"
+  t3=1
 fi
-printf '%s\n' "$files" | grep -qE '(^|/)(consent|gdpr|art9)/' && tier="tier-3"
 # Payments money movement: ANY changed payments IMPLEMENTATION file (code or SQL) is
-# conservatively tier-3. Detecting money movement by keyword is unbounded (Stripe
-# checkout/session/paymentIntent/subscription/invoice/price/payout/...), so we do NOT try
-# to enumerate it — a payments implementation change is treated as money-adjacent and must
-# pass the tier-3 jo-approved gate. Non-implementation payments files (docs, json, images)
-# stay tier-2 via the path rule above. Test/spec files are not implementation.
-# NOTE: this is more conservative than the spec's "payments path = tier-2" for impl files
-# ("im Zweifel tier-3"); the trade-off is that payments code changes need jo-approved.
+# conservatively tier-3 — detecting money movement by keyword is unbounded (Stripe
+# checkout/session/paymentIntent/subscription/invoice/...), so we do NOT enumerate it.
+# Non-implementation payments files (docs/json/images) stay tier-2 via the path rule below;
+# test/spec files are not implementation.
+# NOTE: more conservative than the spec's "payments path = tier-2" for impl files
+# ("im Zweifel tier-3") — the trade-off is that payments code changes need jo-approved.
 pay_impl="$(printf '%s\n' "$payments_files" | grep -E '\.(ts|tsx|js|mjs|cjs|sql)$' | grep -vE '\.(test|spec)\.' || true)"
-if [ -n "$pay_impl" ]; then
-  tier="tier-3"
-fi
+[ -n "$pay_impl" ] && t3=1
 
-echo "$tier"
+# A payments path that is not an impl file still escalates to tier-2 (path-level risk).
+[ -n "$payments_files" ] && t2=1
+
+# ---- resolve (tier-3 > tier-2 > tier-1) ----
+if [ "$t3" = "1" ]; then
+  echo "tier-3"
+elif [ "$t2" = "1" ]; then
+  echo "tier-2"
+else
+  echo "tier-1"
+fi
