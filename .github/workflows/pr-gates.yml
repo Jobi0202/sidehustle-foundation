@@ -206,9 +206,11 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           # Pinned for predictable cost (input names verified against codex-action action.yml).
-          # gpt-5.5-codex: smarter AND more token-efficient than 5.4 (often cheaper per review);
-          # NOT 5.4-mini (too weak for the safety gate). effort=medium is the main cost lever.
-          model: gpt-5.5-codex
+          # The codex-specialised line tops out at gpt-5.3-codex (latest; gpt-5.5/5.4 are the
+          # GENERAL models, there is no gpt-5.5-codex — confirmed model_not_found). 5.3-codex
+          # is the smartest codex model; NOT a -mini (too weak for the safety gate).
+          # effort=medium is the main cost lever.
+          model: gpt-5.3-codex
           effort: medium
           sandbox: read-only
           output-file: codex-output.md

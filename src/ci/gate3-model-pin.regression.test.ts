@@ -11,8 +11,8 @@ describe('regression: issue-25: Gate 3 codex model + effort pinned', () => {
     'utf8',
   )
 
-  it('pins the codex model to gpt-5.5-codex', () => {
-    expect(workflow).toMatch(/^\s*model:\s*gpt-5\.5-codex\s*$/m)
+  it('pins the codex model to gpt-5.3-codex (latest codex-specialised model)', () => {
+    expect(workflow).toMatch(/^\s*model:\s*gpt-5\.3-codex\s*$/m)
   })
 
   it('pins the reasoning effort to medium', () => {
