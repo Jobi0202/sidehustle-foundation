@@ -47,6 +47,15 @@ t3=0
 printf '%s\n' "$files" | grep -qE '(^|/)(auth|rls)/'        && t2=1
 printf '%s\n' "$files" | grep -qE '(^|/)(consent|gdpr|art9)/' && t3=1
 
+# A changed migration .sql path that is absent from the working tree (deleted or renamed
+# away) cannot be inspected for safety — fail safe to tier-2 rather than silently tier-1.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  [ -f "$f" ] || t2=1
+done <<EOF
+$sql_files
+EOF
+
 # ---- SQL allow-list: a migration statement is safe-additive only if it matches SAFE
 #      (and an ADD COLUMN is not NOT-NULL-without-DEFAULT). Anything else -> tier-2. ----
 SAFE='^(CREATE TABLE|CREATE (CONCURRENTLY )?INDEX|CREATE SCHEMA|CREATE EXTENSION|CREATE TYPE|CREATE SEQUENCE|CREATE MATERIALIZED VIEW|CREATE (OR REPLACE )?(FUNCTION|TRIGGER|VIEW)|COMMENT ON|INSERT INTO|GRANT|REVOKE|SET |SELECT |BEGIN|COMMIT|ALTER SEQUENCE|ALTER TYPE [^,]* ADD VALUE|ALTER TABLE [^,]* ADD COLUMN)'

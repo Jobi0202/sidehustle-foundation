@@ -99,6 +99,13 @@ describe('classify-tier.sh', () => {
     expect(classify({ 'README.md': '# hi' })).toBe('tier-1')
   })
 
+  it('a deleted/absent migration file fails safe -> tier-2', () => {
+    // The path matches migrations/*.sql but no file exists on disk (deleted/renamed away),
+    // so its safety cannot be inspected — it must not silently become tier-1.
+    const out = execFileSync('bash', [SCRIPT], { input: 'migrations/deleted.sql' }).toString().trim()
+    expect(out).toBe('tier-2')
+  })
+
   // Fail-safe allow-list: any non-additive or unrecognised statement is at least tier-2,
   // so an unsafe SQL form can never slip to tier-1 — no need to enumerate every form.
   it.each([
