@@ -205,6 +205,11 @@ jobs:
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          # Pinned for predictable cost (input names verified against codex-action action.yml).
+          # gpt-5.5-codex: smarter AND more token-efficient than 5.4 (often cheaper per review);
+          # NOT 5.4-mini (too weak for the safety gate). effort=medium is the main cost lever.
+          model: gpt-5.5-codex
+          effort: medium
           sandbox: read-only
           output-file: codex-output.md
           prompt: |
