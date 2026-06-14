@@ -69,6 +69,14 @@ if grep -qE "uses:[[:space:]]*${REUSABLE_PATH}@" "$GATES"; then
   else
     fail "missing 'secrets: inherit' — the reusable workflow gets no secrets"
   fi
+  # A called workflow's permissions are capped by the caller's grant (repo default is
+  # read-only), so the caller must grant the union the reusable jobs need or the run fails
+  # at startup.
+  if in_gates '^permissions:' && in_gates 'contents:[[:space:]]*write' && in_gates 'pull-requests:[[:space:]]*write' && in_gates 'issues:[[:space:]]*write' && in_gates 'id-token:[[:space:]]*write'; then
+    pass "caller grants the permissions the reusable jobs require (contents/PR/issues/id-token write)"
+  else
+    fail "caller does not grant the reusable's required permissions — the run will fail at startup"
+  fi
 else
   fail "pr-gates.yml is NOT a thin caller of ${REUSABLE_PATH} — un-migrated drift (run Schritt 2/3)"
 fi

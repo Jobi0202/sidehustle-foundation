@@ -39,4 +39,15 @@ describe('regression: issue-29: pr-gates is a thin caller of sidehustle-ci', () 
     )
     expect(workflow).toMatch(/cancel-in-progress:\s*true/)
   })
+
+  // A called workflow's permissions are capped by the caller's grant (repo default is
+  // read-only), so the caller must grant the union the reusable's jobs need — else the run
+  // fails at startup. Pin it so this can't regress.
+  it('grants the permissions the reusable jobs require (else startup failure)', () => {
+    expect(workflow).toMatch(/^permissions:/m)
+    expect(workflow).toMatch(/contents:\s*write/)
+    expect(workflow).toMatch(/pull-requests:\s*write/)
+    expect(workflow).toMatch(/issues:\s*write/)
+    expect(workflow).toMatch(/id-token:\s*write/)
+  })
 })
