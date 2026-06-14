@@ -22,6 +22,7 @@ set -uo pipefail
 
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || echo .)"
 GATES="$ROOT/.github/workflows/pr-gates.yml"
+DB_DEPLOY="$ROOT/.github/workflows/db-deploy.yml"
 MODEL_DOC="$ROOT/docs/CI-MODEL-CHOICE.md"
 
 REQUIRED_JOBS="workflow-lint lint typecheck unit e2e claude-review codex-adversarial architect-gate gates-green"
@@ -35,12 +36,14 @@ warn() { printf '  \033[33mWARN\033[0m  %s\n' "$1"; warn_count=$((warn_count + 1
 
 # grep helper scoped to the gates file; returns 0 on match.
 in_gates() { grep -qE "$1" "$GATES"; }
+# grep helper scoped to the db-deploy file; returns 0 on match.
+in_db_deploy() { grep -qE "$1" "$DB_DEPLOY"; }
 
 echo "verify-pipeline.sh — checking $ROOT"
 echo
 
 # --- 1. pr-gates.yml exists -------------------------------------------------
-echo "[1/10] Workflow file"
+echo "[1/11] Workflow file"
 if [ -f "$GATES" ]; then
   pass ".github/workflows/pr-gates.yml present"
 else
@@ -51,7 +54,7 @@ else
 fi
 
 # --- 2. Required jobs present ----------------------------------------------
-echo "[2/10] Required jobs"
+echo "[2/11] Required jobs"
 for job in $REQUIRED_JOBS; do
   if grep -qE "^[[:space:]]{2}${job}:" "$GATES"; then
     pass "job '$job' defined"
@@ -61,7 +64,7 @@ for job in $REQUIRED_JOBS; do
 done
 
 # --- 3. Gate 2 (claude-review) posts + enforces a verdict -------------------
-echo "[3/10] Gate 2 — Claude review verdict"
+echo "[3/11] Gate 2 — Claude review verdict"
 if in_gates 'gh pr comment .* -F'; then
   pass "Gate 2 posts the verdict back to the PR (gh pr comment -F)"
 else
@@ -79,7 +82,7 @@ else
 fi
 
 # --- 4. Gate 3 (codex-adversarial) posts + enforces ------------------------
-echo "[4/10] Gate 3 — Codex adversarial verdict"
+echo "[4/11] Gate 3 — Codex adversarial verdict"
 if in_gates 'openai/codex-action'; then
   pass "Gate 3 runs openai/codex-action (headless OpenAI)"
 else
@@ -112,7 +115,7 @@ else
 fi
 
 # --- 5. gates-green aggregates + merges -------------------------------------
-echo "[5/10] gates-green — aggregate + auto-merge"
+echo "[5/11] gates-green — aggregate + auto-merge"
 if in_gates 'alls-green'; then
   pass "gates-green uses the alls-green aggregate"
 else
@@ -125,7 +128,7 @@ else
 fi
 
 # --- 6. workflow-lint runs actionlint --------------------------------------
-echo "[6/10] workflow-lint — actionlint guard"
+echo "[6/11] workflow-lint — actionlint guard"
 if in_gates 'rhysd/actionlint'; then
   pass "workflow-lint shellchecks run-blocks via actionlint"
 else
@@ -133,7 +136,7 @@ else
 fi
 
 # --- 7. Model-choice documentation -----------------------------------------
-echo "[7/10] Model-choice docs"
+echo "[7/11] Model-choice docs"
 if [ -f "$MODEL_DOC" ]; then
   pass "docs/CI-MODEL-CHOICE.md present"
 else
@@ -142,7 +145,7 @@ fi
 
 # --- 8. DeepSeek routing + VERDICT format guard ----------------------------
 # Both landed in the DeepSeek/P0 reconcile PR — now part of the hard contract.
-echo "[8/10] DeepSeek routing + VERDICT guard"
+echo "[8/11] DeepSeek routing + VERDICT guard"
 if in_gates 'ANTHROPIC_BASE_URL' && in_gates 'ANTHROPIC_AUTH_TOKEN'; then
   pass "Gate 2 routed via DeepSeek (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN)"
 else
@@ -155,7 +158,7 @@ else
 fi
 
 # --- 9. Gate 3 is blocking (in gates-green needs) ---------------------------
-echo "[9/10] Gate 3 blocking"
+echo "[9/11] Gate 3 blocking"
 gg_needs="$(grep -A8 '^  gates-green:' "$GATES" | grep -E '^[[:space:]]*needs:' | head -1)"
 case "$gg_needs" in
   *codex-adversarial*) pass "Gate 3 (codex-adversarial) is in gates-green needs: — blocking" ;;
@@ -163,7 +166,7 @@ case "$gg_needs" in
 esac
 
 # --- 10. Risk tiering: classifier + architect-gate + tier-3 schranke ---------
-echo "[10/10] Risk tiering"
+echo "[10/11] Risk tiering"
 RISK="$ROOT/.github/workflows/auto-label-risk.yml"
 if [ -f "$RISK" ] && grep -q 'tier-1' "$RISK" && grep -q 'tier-2' "$RISK" && grep -q 'tier-3' "$RISK"; then
   pass "auto-label-risk classifies into tier-1/tier-2/tier-3"
@@ -179,6 +182,51 @@ if in_gates 'tier-3' && in_gates 'jo-approved'; then
 else
   fail "gates-green missing the tier-3 schranke"
 fi
+
+# --- 11. db-deploy template: 0-touch migration deploy on merge to main -------
+echo "[11/11] db-deploy — 0-touch migration deploy"
+if [ -f "$DB_DEPLOY" ]; then
+  pass ".github/workflows/db-deploy.yml present"
+  if in_db_deploy '^[[:space:]]*branches:[[:space:]]*\[main\]' || in_db_deploy '^[[:space:]]*-[[:space:]]*main[[:space:]]*$'; then
+    pass "db-deploy triggers on push to main"
+  else
+    fail "db-deploy does not trigger on push to main — migrations would never apply"
+  fi
+  if in_db_deploy "supabase/migrations/\*\*"; then
+    pass "db-deploy is path-filtered to supabase/migrations/** (no-op when no migration changed)"
+  else
+    fail "db-deploy missing the supabase/migrations/** paths filter — it would run on every main push"
+  fi
+  if in_db_deploy 'supabase db push'; then
+    pass "db-deploy applies migrations via 'supabase db push'"
+  else
+    fail "db-deploy does not run 'supabase db push' — nothing gets applied"
+  fi
+  # Migration-repair belongs in bootstrap only — it must NOT live in db-deploy (it would
+  # mask real drift on every deploy).
+  if in_db_deploy 'migration repair'; then
+    fail "db-deploy contains 'migration repair' — repair is a one-time bootstrap op, not a per-deploy step"
+  else
+    pass "db-deploy has no migration-repair (correct — repair is bootstrap-only)"
+  fi
+else
+  fail ".github/workflows/db-deploy.yml missing — no 0-touch DB deploy"
+fi
+
+# Bootstrap scripts present (run once per repo, outside CI).
+for s in bootstrap-supabase.sh bootstrap-vercel.sh; do
+  if [ -f "$ROOT/scripts/$s" ]; then
+    pass "scripts/$s present"
+  else
+    fail "scripts/$s missing — repo cannot be bootstrapped for 0-touch deploy"
+  fi
+done
+
+# SUPABASE_* secrets + Vercel Production Branch = main are set OUTSIDE the repo at rollout
+# time, so they are MANUAL-CONFIRM warnings here, not hard fails (a fresh template clone
+# legitimately has neither yet).
+warn "MANUAL-CONFIRM: SUPABASE_ACCESS_TOKEN / SUPABASE_DB_PASSWORD / SUPABASE_PROJECT_ID set in repo secrets (needed before the first migration merges)"
+warn "MANUAL-CONFIRM: Vercel Production Branch = main (so green main-merges auto-promote to prod)"
 
 # --- Summary ----------------------------------------------------------------
 echo
