@@ -28,6 +28,15 @@ describe('regression: issue-29: pr-gates is a thin caller of sidehustle-ci', () 
     expect(workflow).toMatch(/secrets:\s*inherit/)
   })
 
+  // Reusable job checks are prefixed "gates / ...", so the caller must re-export a
+  // top-level "Gates Green" job to satisfy main's required-status-check of that name
+  // without any branch-protection edit.
+  it('exposes a caller-level "Gates Green" job that needs the reusable', () => {
+    expect(workflow).toMatch(/^ {2}gates-green:/m)
+    expect(workflow).toMatch(/name:\s*Gates Green/)
+    expect(workflow).toMatch(/needs:\s*\[gates\]/)
+  })
+
   it('triggers on pull_request incl. labeled/unlabeled (so jo-approved re-runs the gates)', () => {
     expect(workflow).toMatch(/pull_request:/)
     expect(workflow).toMatch(/types:\s*\[[^\]]*\blabeled\b[^\]]*\bunlabeled\b[^\]]*\]/)

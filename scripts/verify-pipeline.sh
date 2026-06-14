@@ -77,6 +77,14 @@ if grep -qE "uses:[[:space:]]*${REUSABLE_PATH}@" "$GATES"; then
   else
     fail "caller does not grant the reusable's required permissions — the run will fail at startup"
   fi
+  # Reusable job checks are prefixed "gates / ..."; the caller must re-export a top-level
+  # "Gates Green" job so the existing required-status-check of that name is satisfied with
+  # no branch-protection edit.
+  if grep -qE '^[[:space:]]{2}gates-green:' "$GATES" && in_gates 'name:[[:space:]]*Gates Green'; then
+    pass "caller re-exports the 'Gates Green' check (branch-protection contract surface)"
+  else
+    fail "caller has no 'Gates Green' job — main's required 'Gates Green' check can never pass"
+  fi
 else
   fail "pr-gates.yml is NOT a thin caller of ${REUSABLE_PATH} — un-migrated drift (run Schritt 2/3)"
 fi

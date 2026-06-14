@@ -39,3 +39,24 @@ jobs:
   gates:
     uses: Jobi0202/sidehustle-ci/.github/workflows/pr-gates-reusable.yml@main
     secrets: inherit
+
+  # Branch-protection contract surface. The reusable's internal gates-green enables
+  # auto-merge; this caller-level job re-exports the aggregate result under the stable
+  # check name "Gates Green" that main's required-status-check (and every child's) expects.
+  # Reusable job checks are always prefixed "gates / ...", so without this the old required
+  # context "Gates Green" could never be satisfied. Keeping it here means NO repo needs a
+  # branch-protection edit when it migrates to the reusable pipeline.
+  gates-green:
+    name: Gates Green
+    needs: [gates]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the reusable pipeline to have succeeded
+        run: |
+          result='${{ needs.gates.result }}'
+          if [ "$result" != "success" ]; then
+            echo "::error::Reusable PR Gates did not succeed (result=$result)."
+            exit 1
+          fi
+          echo "Reusable PR Gates passed — Gates Green."
