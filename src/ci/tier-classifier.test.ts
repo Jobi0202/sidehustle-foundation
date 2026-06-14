@@ -38,21 +38,24 @@ describe('classify-tier.sh', () => {
     expect(classify({ 'migrations/004.sql': 'DELETE FROM users; DELETE FROM s WHERE id=1;' })).toBe('tier-3')
   })
 
-  it('every DELETE has a WHERE -> tier-2', () => {
-    expect(classify({ 'migrations/005.sql': 'DELETE FROM s WHERE id=1;' })).toBe('tier-2')
+  // Decision B: escalate by PRESENCE, never absence — any DELETE is tier-3 (even scoped),
+  // because a `WHERE` token can be faked by a string literal. Unpokeable + convergent.
+  it('any DELETE is tier-3, even a scoped DELETE..WHERE', () => {
+    expect(classify({ 'migrations/005.sql': 'DELETE FROM s WHERE id=1;' })).toBe('tier-3')
   })
 
-  it('a safe ADD COLUMN..DEFAULT cannot mask an unsafe NOT NULL add -> tier-2', () => {
-    expect(
-      classify({
-        'migrations/006.sql':
-          'ALTER TABLE u ADD COLUMN a int NOT NULL; ALTER TABLE u ADD COLUMN b int NOT NULL DEFAULT 0;',
-      }),
-    ).toBe('tier-2')
+  it('a WHERE faked in a string literal cannot dodge tier-3', () => {
+    expect(classify({ 'migrations/005b.sql': "DELETE FROM users RETURNING 'where';" })).toBe('tier-3')
   })
 
-  it('ADD COLUMN NOT NULL DEFAULT -> tier-1', () => {
-    expect(classify({ 'migrations/007.sql': 'ALTER TABLE u ADD COLUMN b int NOT NULL DEFAULT 0;' })).toBe('tier-1')
+  // Decision B: any ADD COLUMN NOT NULL is tier-2 by presence — we do not check for a
+  // DEFAULT (a `DEFAULT` token can be faked by a string literal / comment).
+  it('ADD COLUMN NOT NULL is tier-2 regardless of DEFAULT', () => {
+    expect(classify({ 'migrations/007.sql': 'ALTER TABLE u ADD COLUMN b int NOT NULL DEFAULT 0;' })).toBe('tier-2')
+  })
+
+  it('a nullable ADD COLUMN stays safe-additive -> tier-1', () => {
+    expect(classify({ 'migrations/007b.sql': 'ALTER TABLE u ADD COLUMN b int;' })).toBe('tier-1')
   })
 
   it('TRUNCATE -> tier-3', () => {

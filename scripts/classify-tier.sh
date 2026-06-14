@@ -62,10 +62,12 @@ SAFE='^(CREATE TABLE|CREATE (CONCURRENTLY )?INDEX|CREATE SCHEMA|CREATE EXTENSION
 while IFS= read -r s; do
   st="$(printf '%s' "$s" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   [ -z "$st" ] && continue
-  # ADD COLUMN ... NOT NULL without DEFAULT locks a populated table — unsafe.
+  # ADD COLUMN ... NOT NULL can lock a populated table -> tier-2 by PRESENCE of NOT NULL.
+  # We deliberately do NOT check for a DEFAULT: absence-detection is foolable by a string
+  # literal / comment (`... NOT NULL /* DEFAULT */`), so we escalate on presence instead
+  # (architect decision B). An ADD COLUMN without NOT NULL is nullable -> safe-additive.
   if printf '%s' "$st" | grep -qE '\bADD[[:space:]]+COLUMN\b' \
-     && printf '%s' "$st" | grep -qE '\bNOT[[:space:]]+NULL\b' \
-     && ! printf '%s' "$st" | grep -qE '\bDEFAULT\b'; then
+     && printf '%s' "$st" | grep -qE '\bNOT[[:space:]]+NULL\b'; then
     t2=1
     continue
   fi
@@ -74,13 +76,14 @@ done <<EOF
 $sql_stmts
 EOF
 
-# ---- tier-3 (data loss / legal), conservative per statement ----
-stmt 'DROP[[:space:]]+TABLE' && t3=1
-stmt '\bTRUNCATE\b'          && t3=1   # unconditional data loss
-# DELETE without WHERE — any single DELETE statement lacking a WHERE.
-if printf '%s\n' "$sql_stmts" | grep -E '\bDELETE[[:space:]]+FROM\b' | grep -qvE '\bWHERE\b'; then
-  t3=1
-fi
+# ---- tier-3 (data loss / legal) by PRESENCE of the operation, per statement ----
+# Architect decision B: escalate on the presence of a data-loss op, never on the absence
+# of a qualifier (a `WHERE` token can be faked by a string literal / comment, so
+# "DELETE without WHERE" detection is unsafe and never converges). A scoped
+# `DELETE ... WHERE` therefore also tiers to tier-3 — conservative and unpokeable.
+stmt 'DROP[[:space:]]+TABLE'      && t3=1
+stmt '\bTRUNCATE\b'               && t3=1
+stmt '\bDELETE[[:space:]]+FROM\b' && t3=1
 # Payments money movement: ANY changed payments IMPLEMENTATION file (code or SQL) is
 # conservatively tier-3 — detecting money movement by keyword is unbounded (Stripe
 # checkout/session/paymentIntent/subscription/invoice/...), so we do NOT enumerate it.
