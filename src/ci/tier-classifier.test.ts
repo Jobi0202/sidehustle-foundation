@@ -59,12 +59,24 @@ describe('classify-tier.sh', () => {
     expect(classify({ 'migrations/008.sql': 'TRUNCATE TABLE logs;' })).toBe('tier-3')
   })
 
-  it('payments code with money movement -> tier-3', () => {
-    expect(classify({ 'src/payments/charge.ts': 'export const charge = (a: number) => stripe.charge(a)' })).toBe('tier-3')
+  // Payments money-movement detection is conservative + keyword-free: ANY payments
+  // implementation file is tier-3, so no Stripe API needs enumerating to be caught.
+  it.each([
+    ['src/payments/charge.ts', 'stripe.charge(a)'],
+    ['src/payments/checkout.ts', 'stripe.checkout.sessions.create()'],
+    ['src/payments/subscription.ts', 'stripe.subscriptions.create()'],
+    ['src/payments/invoice.ts', 'stripe.invoices.create()'],
+    ['src/payments/types.ts', 'export type Money = number'],
+  ])('payments implementation file %s -> tier-3', (path, content) => {
+    expect(classify({ [path]: content })).toBe('tier-3')
   })
 
-  it('payments code without money movement -> tier-2', () => {
-    expect(classify({ 'src/payments/types.ts': 'export type Money = number' })).toBe('tier-2')
+  it('non-implementation payments file (docs) -> tier-2 (path only)', () => {
+    expect(classify({ 'src/payments/README.md': '# Payments' })).toBe('tier-2')
+  })
+
+  it('payments test file -> tier-2 (path, not implementation)', () => {
+    expect(classify({ 'src/payments/charge.test.ts': 'test("x", () => {})' })).toBe('tier-2')
   })
 
   it('commented-out DROP is ignored -> tier-1', () => {

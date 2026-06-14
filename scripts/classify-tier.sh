@@ -64,8 +64,16 @@ if printf '%s\n' "$sql_stmts" | grep -E '\bDELETE[[:space:]]+FROM\b' | grep -qvE
   tier="tier-3"
 fi
 printf '%s\n' "$files" | grep -qE '(^|/)(consent|gdpr|art9)/' && tier="tier-3"
-# Payments money movement — from the changed payments files' content (code or SQL).
-if [ -n "$payments_files" ] && printf '%s' "$sql_up$pay_up" | grep -qE 'TRANSFER|CHARGE|PAYOUT|REFUND|BALANCE|AMOUNT'; then
+# Payments money movement: ANY changed payments IMPLEMENTATION file (code or SQL) is
+# conservatively tier-3. Detecting money movement by keyword is unbounded (Stripe
+# checkout/session/paymentIntent/subscription/invoice/price/payout/...), so we do NOT try
+# to enumerate it — a payments implementation change is treated as money-adjacent and must
+# pass the tier-3 jo-approved gate. Non-implementation payments files (docs, json, images)
+# stay tier-2 via the path rule above. Test/spec files are not implementation.
+# NOTE: this is more conservative than the spec's "payments path = tier-2" for impl files
+# ("im Zweifel tier-3"); the trade-off is that payments code changes need jo-approved.
+pay_impl="$(printf '%s\n' "$payments_files" | grep -E '\.(ts|tsx|js|mjs|cjs|sql)$' | grep -vE '\.(test|spec)\.' || true)"
+if [ -n "$pay_impl" ]; then
   tier="tier-3"
 fi
 
