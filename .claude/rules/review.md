@@ -73,5 +73,25 @@ divergence is visible rather than silently resolved by merge order. This does no
 the merge rule (Gate 3's severity gate still decides) and does not duplicate the **Loop
 Cap** below — it only records that the two reviewers disagreed.
 
-## Loop Cap
-Maximum 3 review cycles per PR. On the 4th consecutive FAIL, the workflow labels the PR `needs-jo` and triggers Pushover. The Builder stops pushing and waits.
+## Loop Cap & Escalation Routing
+Maximum 3 review cycles per PR. Before the cap forces an escalation, apply these rules.
+
+### Recurring bug-class → restructure, don't keep guessing
+If Gate 3 surfaces the **same class of bug ≥ 2 times** (e.g. an aggregate check that a
+later statement masks, an edge case in the same parser), do NOT keep guessing one fix per
+Gate-3 cycle. **Autonomously restructure** the offending logic into a separately
+**unit-tested** unit — extract a script or module and add tests against fixtures so the
+whole class is caught **locally**, then push once. This is "restructure rather than thrash";
+it is the expected behaviour, not an escalation.
+
+### Technical loop-cap → `needs-architect` (NOT `needs-jo`)
+On 3 consecutive FAILs that are purely **technical** (code correctness, classifier/parse
+logic, workflow mechanics, architecture-rule interpretation), label the PR
+**`needs-architect`** and post a **structured decision request** in the PR body: the precise
+options, the trade-offs, and your recommendation. This routes to the architect process —
+**Jo only forwards it, Jo does not decide** the technical call.
+
+### `needs-jo` is reserved
+Apply **`needs-jo`** ONLY for: a **tier-3** risk decision (money/data-loss/consent), a
+**cost/billing/quota** blocker, or a **product/strategy** question. Never for a technical
+loop-cap.
