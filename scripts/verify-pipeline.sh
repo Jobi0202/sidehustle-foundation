@@ -24,7 +24,7 @@ ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev
 GATES="$ROOT/.github/workflows/pr-gates.yml"
 MODEL_DOC="$ROOT/docs/CI-MODEL-CHOICE.md"
 
-REQUIRED_JOBS="workflow-lint lint typecheck unit e2e claude-review codex-adversarial gates-green"
+REQUIRED_JOBS="workflow-lint lint typecheck unit e2e claude-review codex-adversarial architect-gate gates-green"
 
 fail_count=0
 warn_count=0
@@ -40,7 +40,7 @@ echo "verify-pipeline.sh — checking $ROOT"
 echo
 
 # --- 1. pr-gates.yml exists -------------------------------------------------
-echo "[1/9] Workflow file"
+echo "[1/10] Workflow file"
 if [ -f "$GATES" ]; then
   pass ".github/workflows/pr-gates.yml present"
 else
@@ -51,7 +51,7 @@ else
 fi
 
 # --- 2. Required jobs present ----------------------------------------------
-echo "[2/9] Required jobs"
+echo "[2/10] Required jobs"
 for job in $REQUIRED_JOBS; do
   if grep -qE "^[[:space:]]{2}${job}:" "$GATES"; then
     pass "job '$job' defined"
@@ -61,7 +61,7 @@ for job in $REQUIRED_JOBS; do
 done
 
 # --- 3. Gate 2 (claude-review) posts + enforces a verdict -------------------
-echo "[3/9] Gate 2 — Claude review verdict"
+echo "[3/10] Gate 2 — Claude review verdict"
 if in_gates 'gh pr comment .* -F'; then
   pass "Gate 2 posts the verdict back to the PR (gh pr comment -F)"
 else
@@ -79,7 +79,7 @@ else
 fi
 
 # --- 4. Gate 3 (codex-adversarial) posts + enforces ------------------------
-echo "[4/9] Gate 3 — Codex adversarial verdict"
+echo "[4/10] Gate 3 — Codex adversarial verdict"
 if in_gates 'openai/codex-action'; then
   pass "Gate 3 runs openai/codex-action (headless OpenAI)"
 else
@@ -107,7 +107,7 @@ else
 fi
 
 # --- 5. gates-green aggregates + merges -------------------------------------
-echo "[5/9] gates-green — aggregate + auto-merge"
+echo "[5/10] gates-green — aggregate + auto-merge"
 if in_gates 'alls-green'; then
   pass "gates-green uses the alls-green aggregate"
 else
@@ -120,7 +120,7 @@ else
 fi
 
 # --- 6. workflow-lint runs actionlint --------------------------------------
-echo "[6/9] workflow-lint — actionlint guard"
+echo "[6/10] workflow-lint — actionlint guard"
 if in_gates 'rhysd/actionlint'; then
   pass "workflow-lint shellchecks run-blocks via actionlint"
 else
@@ -128,7 +128,7 @@ else
 fi
 
 # --- 7. Model-choice documentation -----------------------------------------
-echo "[7/9] Model-choice docs"
+echo "[7/10] Model-choice docs"
 if [ -f "$MODEL_DOC" ]; then
   pass "docs/CI-MODEL-CHOICE.md present"
 else
@@ -137,7 +137,7 @@ fi
 
 # --- 8. DeepSeek routing + VERDICT format guard ----------------------------
 # Both landed in the DeepSeek/P0 reconcile PR — now part of the hard contract.
-echo "[8/9] DeepSeek routing + VERDICT guard"
+echo "[8/10] DeepSeek routing + VERDICT guard"
 if in_gates 'ANTHROPIC_BASE_URL' && in_gates 'ANTHROPIC_AUTH_TOKEN'; then
   pass "Gate 2 routed via DeepSeek (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN)"
 else
@@ -150,12 +150,30 @@ else
 fi
 
 # --- 9. Gate 3 is blocking (in gates-green needs) ---------------------------
-echo "[9/9] Gate 3 blocking"
+echo "[9/10] Gate 3 blocking"
 gg_needs="$(grep -A8 '^  gates-green:' "$GATES" | grep -E '^[[:space:]]*needs:' | head -1)"
 case "$gg_needs" in
   *codex-adversarial*) pass "Gate 3 (codex-adversarial) is in gates-green needs: — blocking" ;;
   *) fail "Gate 3 (codex-adversarial) NOT in gates-green needs: — auto-merge ignores Gate 3" ;;
 esac
+
+# --- 10. Risk tiering: classifier + architect-gate + tier-3 schranke ---------
+echo "[10/10] Risk tiering"
+RISK="$ROOT/.github/workflows/auto-label-risk.yml"
+if [ -f "$RISK" ] && grep -q 'tier-1' "$RISK" && grep -q 'tier-2' "$RISK" && grep -q 'tier-3' "$RISK"; then
+  pass "auto-label-risk classifies into tier-1/tier-2/tier-3"
+else
+  fail "auto-label-risk does not emit the three tier labels"
+fi
+case "$gg_needs" in
+  *architect-gate*) pass "architect-gate is in gates-green needs: — tier-2 is blocking" ;;
+  *) fail "architect-gate NOT in gates-green needs: — tier-2 changes would not be gated" ;;
+esac
+if in_gates 'tier-3' && in_gates 'jo-approved'; then
+  pass "gates-green has the tier-3 + jo-approved schranke"
+else
+  fail "gates-green missing the tier-3 schranke"
+fi
 
 # --- Summary ----------------------------------------------------------------
 echo

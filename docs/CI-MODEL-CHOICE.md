@@ -46,10 +46,13 @@ and comment the five DeepSeek lines (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN
 restore the `--model claude-haiku-4-5-20251001` flag. Requires a funded
 `ANTHROPIC_API_KEY`. Gate 3 has no Anthropic dependency to roll back.
 
-## Planned — architect-gate model (P1)
+## Architect-gate model (P1 — live)
 
-P1 adds a tier-2 architect gate using an Anthropic Opus-class model authenticated
-via `CLAUDE_CODE_OAUTH_TOKEN` (Jo's Claude Max subscription, $0 pay-per-use) rather
-than `ANTHROPIC_API_KEY`. That gives three independent families across the gates
-(DeepSeek / OpenAI-Codex / Anthropic-Opus). The secret `CLAUDE_CODE_OAUTH_TOKEN`
-must be set before that gate goes live (not yet provisioned).
+The `architect-gate` job runs for `tier-2`/`tier-3` PRs (the `auto-label-risk`
+classifier sets the tier). It uses an Anthropic Opus-class model authenticated via
+`CLAUDE_CODE_OAUTH_TOKEN` (Jo's Claude Max subscription, $0 pay-per-use) with
+`--model opus`, focused on irreversibility + schema-safety against existing rows.
+That gives three independent model families across the gates (Gate 2 DeepSeek /
+Gate 3 OpenAI-Codex / architect Anthropic-Opus). The job is a no-op PASS for
+`tier-1`, so it sits in `gates-green`'s `needs:` without alls-green skip handling.
+`CLAUDE_CODE_OAUTH_TOKEN` must be set as a repo secret for tier-2/3 PRs to pass.
