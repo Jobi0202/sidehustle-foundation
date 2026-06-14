@@ -20,7 +20,7 @@ PM Project (Cowork)         ->   Master Agent (Cowork)        ->   Builder (Clau
 ## What the Template Ships With
 
 - CLAUDE.md (operator entrypoint)
-- .claude/rules/* (5 rule files)
+- .claude/rules/* (6 rule files)
 - .claude/agents/reviewer.md, .claude/commands/review-pr.md
 - .github/workflows/pr-gates.yml (thin caller of Jobi0202/sidehustle-ci reusable pipeline), notify-jo.yml, db-deploy.yml, auto-label-risk.yml, fleet-drift-auditor.yml
 - .github/ISSUE_TEMPLATE/* (feature, bug, spike)

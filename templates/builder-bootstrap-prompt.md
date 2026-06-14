@@ -88,7 +88,7 @@ Hop-3-Bootstrap-Sequenz (alles via gh CLI lokal, du machst's selbst):
 
 10. Lies in dieser Reihenfolge:
     - CLAUDE.md (Operator-Manual, gilt strikt)
-    - .claude/rules/architecture.md, boy-scout.md, testing.md, review.md, anti-spaghetti.md
+    - .claude/rules/architecture.md, boy-scout.md, testing.md, review.md, anti-spaghetti.md, operator-autonomy.md
     - specs/vision.md, specs/prd-light.md, specs/architecture.md, specs/issues.md
     - .github/workflows/pr-gates.yml
 
