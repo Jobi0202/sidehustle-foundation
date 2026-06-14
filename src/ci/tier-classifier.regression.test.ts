@@ -20,10 +20,12 @@ describe('regression: issue-21: 3-tier risk classifier + architect-gate', () => 
     expect(gates).toMatch(/needs:\s*\[[^\]]*architect-gate[^\]]*\]/)
   })
 
-  it('blocks tier-3 without jo-approved and fails CLOSED on a missing label', () => {
-    expect(gates).toMatch(/tier-3/)
+  it('recomputes the tier from the diff (not the mutable label) and blocks tier-3 without jo-approved', () => {
     expect(gates).toMatch(/jo-approved/)
-    expect(gates).toMatch(/failing closed/i)
+    // Both the architect-gate and gates-green tier-3 schranke must recompute via the
+    // shared classifier rather than trusting a relabel.
+    expect(gates).toMatch(/classify-tier\.sh/)
+    expect(gates).toMatch(/never the mutable label/i)
   })
 
   it('re-runs the gates on labeled/unlabeled so adding jo-approved clears the tier-3 block', () => {

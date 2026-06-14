@@ -319,24 +319,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Determine tier (runtime query)
+      - name: Determine tier (recomputed from the diff — never the mutable label)
         id: tier
         run: |
-          PR=${{ github.event.pull_request.number }}
-          # This job starts after Gate 2 (~minutes), so auto-label-risk has labeled by now.
-          # Poll briefly; if no tier label appears, fail CLOSED (run the architect review).
-          run=true
-          labels=""
-          for _ in 1 2 3 4 5 6; do
-            labels="$(gh pr view "$PR" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | join(",")')"
-            case ",$labels," in
-              *,tier-2,*|*,tier-3,*) run=true; break ;;
-              *,tier-1,*) run=false; break ;;
-              *) sleep 5 ;;
-            esac
-          done
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "architect-gate run=$run (labels: ${labels:-none})"
+          # Compute the tier authoritatively from the diff via the shared classifier.
+          # Labels are mutable (anyone with write access could relabel a tier-3 PR), so
+          # the gate must not trust them — it recomputes.
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files="$(git diff --name-only "$base" "$head")"
+          tier="$(printf '%s\n' "$files" | bash scripts/classify-tier.sh)"
+          echo "Computed tier: $tier"
+          case "$tier" in
+            tier-2|tier-3) echo "run=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "run=false" >> "$GITHUB_OUTPUT" ;;
+          esac
       - name: Install Claude Code CLI
         if: steps.tier.outputs.run == 'true'
         run: npm install -g @anthropic-ai/claude-code@latest
@@ -397,7 +394,13 @@ jobs:
         with:
           jobs: ${{ toJSON(needs) }}
 
-      - name: Tier-3 gate (business/legal risk needs jo-approved)
+      - name: Checkout (to recompute the tier from the diff)
+        if: success()
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tier-3 gate (recomputed from the diff — never the mutable label)
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -405,31 +408,34 @@ jobs:
           PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
         run: |
           PR=${{ github.event.pull_request.number }}
+          # Recompute the tier from the diff with the shared classifier — tier-* labels are
+          # mutable, so relabelling a tier-3 PR as tier-1 must NOT bypass jo-approved. Only
+          # `jo-approved` (a deliberate Jo action; the labeled trigger re-runs this gate) is
+          # read, and only when the COMPUTED tier is tier-3.
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files="$(git diff --name-only "$base" "$head")"
+          tier="$(printf '%s\n' "$files" | bash scripts/classify-tier.sh)"
+          echo "Recomputed tier: $tier"
+          if [ "$tier" != "tier-3" ]; then
+            echo "Recomputed $tier — not tier-3, merge allowed (tier-2 was carried by architect-gate)."
+            exit 0
+          fi
           labels=$(gh pr view "$PR" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | join(",")')
           case ",$labels," in
-            *,tier-3,*)
-              case ",$labels," in
-                *,jo-approved,*) echo "tier-3 + jo-approved — merge allowed." ;;
-                *)
-                  echo "::error::tier-3 without jo-approved — auto-merge blocked until Jo approves."
-                  if [ -n "${PUSHOVER_APP_TOKEN:-}" ] && [ -n "${PUSHOVER_USER_KEY:-}" ]; then
-                    curl -sS https://api.pushover.net/1/messages.json \
-                      --form-string "token=${PUSHOVER_APP_TOKEN}" \
-                      --form-string "user=${PUSHOVER_USER_KEY}" \
-                      --form-string "title=tier-3 PR needs your approval: #${PR}" \
-                      --form-string "message=PR #${PR} is tier-3 (business/legal risk: money movement, data loss, or consent/GDPR) and is blocked until you add the jo-approved label. Read the Architect Gate verdict on the PR for what/why-risky/recommendation." \
-                      --form-string "url=${{ github.server_url }}/${{ github.repository }}/pull/${PR}" \
-                      --form-string "url_title=Open PR" \
-                      --form-string "priority=1" || true
-                  fi
-                  exit 1 ;;
-              esac ;;
-            *,tier-1,*|*,tier-2,*)
-              echo "tier-1/tier-2 — carried by the gate strecke, merge allowed." ;;
+            *,jo-approved,*) echo "tier-3 + jo-approved — merge allowed." ;;
             *)
-              # Fail CLOSED: no tier label means auto-label-risk did not classify (failed
-              # or raced). Never auto-merge an unclassified PR — it could be tier-3.
-              echo "::error::No tier-1/2/3 label on PR #$PR — failing closed. Re-run 'Auto-label risk' or add a tier label."
+              echo "::error::tier-3 (recomputed from the diff) without jo-approved — auto-merge blocked until Jo approves."
+              if [ -n "${PUSHOVER_APP_TOKEN:-}" ] && [ -n "${PUSHOVER_USER_KEY:-}" ]; then
+                curl -sS https://api.pushover.net/1/messages.json \
+                  --form-string "token=${PUSHOVER_APP_TOKEN}" \
+                  --form-string "user=${PUSHOVER_USER_KEY}" \
+                  --form-string "title=tier-3 PR needs your approval: #${PR}" \
+                  --form-string "message=PR #${PR} is tier-3 (business/legal risk: money movement, data loss, or consent/GDPR) and is blocked until you add the jo-approved label. Read the Architect Gate verdict on the PR for what/why-risky/recommendation." \
+                  --form-string "url=${{ github.server_url }}/${{ github.repository }}/pull/${PR}" \
+                  --form-string "url_title=Open PR" \
+                  --form-string "priority=1" || true
+              fi
               exit 1 ;;
           esac
 
