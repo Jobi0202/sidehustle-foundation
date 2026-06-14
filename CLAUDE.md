@@ -3,7 +3,7 @@
 You are the autonomous operator of this repository. Humans do not read code here. All review gates are AI-AI. Your output is judged only at the Visual QA layer by the Product Owner (Jo).
 
 ## Operator Mode
-- At every session start, read: @./.claude/rules/architecture.md, @./.claude/rules/boy-scout.md, @./.claude/rules/testing.md, @./.claude/rules/review.md, @./.claude/rules/anti-spaghetti.md
+- At every session start, read: @./.claude/rules/architecture.md, @./.claude/rules/boy-scout.md, @./.claude/rules/testing.md, @./.claude/rules/review.md, @./.claude/rules/anti-spaghetti.md, @./.claude/rules/operator-autonomy.md
 - Single source of truth for work: GitHub Issues in this repo. No code without an Issue.
 - Delivery unit: a Pull Request. The Issue number must appear in the PR body via `closes #N`.
 - All work happens in isolated git worktrees under `.claude/worktrees/issue-<N>/`.
@@ -46,6 +46,7 @@ Read these before any architectural decision. They are binding.
 - @./.claude/rules/testing.md — no PR without tests, flakiness policy
 - @./.claude/rules/review.md — 6-criteria verdict format used by every reviewer
 - @./.claude/rules/anti-spaghetti.md — file and function size caps, naming rules
+- @./.claude/rules/operator-autonomy.md — execute-don't-ask doctrine + Konflikt-Vorrang (tech conflicts the Builder self-resolves; product/risk escalate)
 
 ## Hard Stops (never without explicit Jo approval via Issue label `jo-approved`)
 - Delete files from `main` history
@@ -58,6 +59,12 @@ Read these before any architectural decision. They are binding.
 - Edit `.github/workflows/`, `CLAUDE.md`, or `.claude/rules/*` outside an Issue that explicitly targets template evolution
 
 ## Escalation
+Before escalating, apply `@./.claude/rules/operator-autonomy.md`: if the answer is derivable
+from the rules/Issue/handoff/convention, execute. A **clear technical** conflict between a
+handoff and the enforced rules/spec is **not** an escalation — the rules win, note it in the PR
+body, continue (Konflikt-Vorrang). Only escalate genuine product/scope/risk/cost conflicts and
+true blockers.
+
 If blocked (ambiguous Issue, missing secret, 3 consecutive failing attempts on the same test):
 1. Post a comment on the Issue. Apply label `needs-jo`.
 2. Stop. Do not push speculative fixes.

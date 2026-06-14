@@ -23,7 +23,7 @@ Apply the 6-criteria canon from @./.claude/rules/review.md to the current PR dif
     - `WEITERHIN OFFEN` — still violates the rule in the current diff.
    Recompute the verdict from the CURRENT state. Do NOT repeat a judgment from the first-snapshot, and do NOT open new side-quest findings if the prior findings are resolved. If every prior blocking finding is BEHOBEN and nothing new genuinely violates a criterion, the verdict is PASS.
 3. For every file in the diff, use the Read tool to load the full file contents, not just hunks. Context matters.
-4. Read the active rule files: architecture.md, boy-scout.md, testing.md, anti-spaghetti.md (review.md is your rubric).
+4. Read the active rule files: architecture.md, boy-scout.md, testing.md, anti-spaghetti.md, operator-autonomy.md (review.md is your rubric).
 5. Run static checks if a checkout is present: `pnpm lint`, `pnpm typecheck`. Factor results into criterion 4.
 6. Apply the 6 criteria. Be strict. You are the bad cop.
 7. Emit the verdict in the exact format from `review.md`.

@@ -25,7 +25,7 @@ Master Agent returns the Builder-Prompt; paste it into Claude Code Desktop. Buil
 ## Pipeline (what this template ships)
 
 - `CLAUDE.md` operator manual
-- `.claude/rules/*` — 5 rule files (architecture, boy-scout, testing, review, anti-spaghetti)
+- `.claude/rules/*` — 6 rule files (architecture, boy-scout, testing, review, anti-spaghetti, operator-autonomy)
 - `.claude/agents/reviewer.md` + `.claude/commands/review-pr.md`
 - `.github/workflows/pr-gates.yml` — thin caller of the shared reusable pipeline `Jobi0202/sidehustle-ci/.github/workflows/pr-gates-reusable.yml@main` (`secrets: inherit`); the 9 gate jobs + alls-green live there, once, for the whole fleet
 - `.github/workflows/enable-auto-merge.yml` — squash-auto-merge on PR open
