@@ -26,6 +26,11 @@ Hop-3-Bootstrap-Sequenz (alles via gh CLI lokal, du machst's selbst):
 
 3. cd {{SLUG}}
 
+3.5. Kanonische Git-Identität pinnen (sonst blockt der pre-push Author-Guard deinen ersten Push):
+   bash scripts/bootstrap-identity.sh
+   # Setzt repo-lokal: Jobi0202 <tomorrow.tech.lab@gmail.com> (Owner aller Repos + Vercel).
+   # johannes.rentsch.jr@gmail.com (totes Giro22-Konto) ist FALSCH und wird vom Guard abgelehnt.
+
 4. Specs aus PM-Workspace nach ./specs/ kopieren (PowerShell):
    $specsSrc = "{{SPECS_PATH}}"
    New-Item -ItemType Directory -Path .\specs -Force
@@ -35,8 +40,10 @@ Hop-3-Bootstrap-Sequenz (alles via gh CLI lokal, du machst's selbst):
    gh secret set -f $env:USERPROFILE\.sidehustle-secrets.env --repo Jobi0202/{{SLUG}}
 
 6. Branch Protection: SKIP — paused bis Firmengruendung (siehe Master-Agent Memory). Free-Plan-Tuersteher ist der lokale Husky pre-push Hook, der mit dem Template geklont wurde. Verifizieren nach `pnpm install` in Issue #1:
-   Test-Path .husky/pre-push    # muss True sein
-   Get-Content .husky/pre-push   # muss main-block-Logik enthalten
+   Test-Path .husky/pre-push          # muss True sein
+   Get-Content .husky/pre-push         # muss main-block + Author-Guard-Aufruf (node ... check-author.mjs) enthalten
+   Test-Path scripts/check-author.mjs  # muss True sein (kanonischer Author-Guard)
+   git config user.email               # muss tomorrow.tech.lab@gmail.com sein (siehe Schritt 3.5)
 
 7. Repo-Settings: Auto-Merge + Squash + Delete-Branch-On-Merge + PR-Body als Squash-Commit-Message (damit `closes #N` Auto-Close beim Squash-Merge zuverlaessig greift):
    gh api --method PATCH /repos/Jobi0202/{{SLUG}} `

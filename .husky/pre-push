@@ -6,3 +6,9 @@ if [ "$branch" = "main" ]; then
   echo "But: bypassing pre-push is a Hard-Stop violation per CLAUDE.md."
   exit 1
 fi
+
+# Canonical-identity guard: reject any pushed commit whose author email is not the
+# fleet identity (Jobi0202 <tomorrow.tech.lab@gmail.com>). Reads the pre-push
+# payload from stdin and judges only the commits being introduced.
+# See scripts/check-author.mjs.
+node "$(git rev-parse --show-toplevel)/scripts/check-author.mjs"

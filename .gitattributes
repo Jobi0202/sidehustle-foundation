@@ -1,0 +1,7 @@
+# Shell scripts, git hooks and Node hook-scripts MUST stay LF so they execute in
+# bash (CI is ubuntu) and via git hooks regardless of the checkout platform.
+# Without this, a Windows checkout rewrites them to CRLF and bash/`grep -P` based
+# scripts misbehave locally.
+*.sh        text eol=lf
+*.mjs       text eol=lf
+.husky/**   text eol=lf
