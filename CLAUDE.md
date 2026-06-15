@@ -8,6 +8,12 @@ You are the autonomous operator of this repository. Humans do not read code here
 - Delivery unit: a Pull Request. The Issue number must appear in the PR body via `closes #N`.
 - All work happens in isolated git worktrees under `.claude/worktrees/issue-<N>/`.
 
+## Canonical Identity (fleet-wide)
+- The one true author for every commit across the fleet is **`Jobi0202 <tomorrow.tech.lab@gmail.com>`** — the GitHub owner of every repo and the Vercel team (`jobi0202's projects`). This is the author already stamped on all squash-merges.
+- `johannes.rentsch.jr@gmail.com` (the dead `Giro22` account, no Vercel) is **WRONG** and must never author commits.
+- On a fresh clone, pin the repo-local identity once: `bash scripts/bootstrap-identity.sh` (sets `user.email` + `user.name`). The template bootstrap does this automatically.
+- The local `.husky/pre-push` author guard (`scripts/check-author.mjs`) rejects any push that introduces a commit authored by a non-canonical email, and prints the fix. Do not bypass it (`--no-verify` is a Hard Stop).
+
 ## Core Loop
 1. Read the Issue: `gh issue view <N> --json title,body,labels,number`
 2. Enter or create worktree: `claude -w issue-<N>`
