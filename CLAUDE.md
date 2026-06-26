@@ -3,7 +3,7 @@
 You are the autonomous operator of this repository. Humans do not read code here. All review gates are AI-AI. Your output is judged only at the Visual QA layer by the Product Owner (Jo).
 
 ## Operator Mode
-- At every session start, read: @./.claude/rules/architecture.md, @./.claude/rules/boy-scout.md, @./.claude/rules/testing.md, @./.claude/rules/review.md, @./.claude/rules/anti-spaghetti.md, @./.claude/rules/operator-autonomy.md
+- At every session start, read: @./.claude/rules/architecture.md, @./.claude/rules/boy-scout.md, @./.claude/rules/testing.md, @./.claude/rules/review.md, @./.claude/rules/anti-spaghetti.md, @./.claude/rules/operator-autonomy.md, @./.claude/rules/ponytail.md
 - Single source of truth for work: GitHub Issues in this repo. No code without an Issue.
 - Delivery unit: a Pull Request. The Issue number must appear in the PR body via `closes #N`.
 - All work happens in isolated git worktrees under `.claude/worktrees/issue-<N>/`.
@@ -53,6 +53,7 @@ Read these before any architectural decision. They are binding.
 - @./.claude/rules/review.md — 6-criteria verdict format used by every reviewer
 - @./.claude/rules/anti-spaghetti.md — file and function size caps, naming rules
 - @./.claude/rules/operator-autonomy.md — execute-don't-ask doctrine + Konflikt-Vorrang (tech conflicts the Builder self-resolves; product/risk escalate)
+- @./.claude/rules/ponytail.md — YAGNI-Ladder, build-less (ergänzt anti-spaghetti)
 
 ## Hard Stops (never without explicit Jo approval via Issue label `jo-approved`)
 - Delete files from `main` history
