@@ -1,5 +1,7 @@
 # sidehustle-foundation
 
+![CI](https://github.com/Jobi0202/sidehustle-foundation/actions/workflows/pr-gates.yml/badge.svg)
+
 🟢 **Live:** _set automatically by Builder Step 8.5 in cloned repos_
 
 Template repository for autonomous side-hustle MVP development with Claude Code.
